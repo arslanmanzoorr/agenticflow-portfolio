@@ -1,6 +1,7 @@
 import Hero from "@/components/home/Hero";
 import StatsBar from "@/components/home/StatsBar";
 import ServicesGrid from "@/components/home/ServicesGrid";
+import OpenClawDemo from "@/components/home/OpenClawDemo";
 import FeaturedProjects from "@/components/home/FeaturedProjects";
 import ToolsMarquee from "@/components/home/ToolsMarquee";
 import Testimonials from "@/components/home/Testimonials";
@@ -12,6 +13,7 @@ export default function HomePage() {
       <Hero />
       <StatsBar />
       <ServicesGrid />
+      <OpenClawDemo />
       <FeaturedProjects />
       <ToolsMarquee />
       <Testimonials />

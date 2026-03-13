@@ -344,4 +344,101 @@ export const projects: Project[] = [
       "Daily digest sent to hiring manager",
     ],
   },
+  {
+    id: 11,
+    slug: "claw-inbox",
+    title: "ClawInbox",
+    tagline:
+      "OpenClaw-powered email command center that reads, classifies, drafts, and sends your daily briefing before your morning coffee.",
+    description:
+      "ClawInbox deploys an OpenClaw agent connected to Gmail and Outlook that processes your entire inbox overnight. It classifies emails by urgency and topic, drafts contextual responses for routine messages, flags critical items, and delivers a prioritized morning briefing via Slack or Telegram.",
+    problem:
+      "Professionals spend 2-3 hours daily managing email — reading, sorting, and drafting responses to repetitive messages while critical items get buried.",
+    solution:
+      "An OpenClaw agent with Gmail/Outlook channel integration, OpenAI-powered classification and drafting, Airtable logging, and Slack/Telegram briefing delivery — all running on a secure Docker-isolated deployment.",
+    tools: ["OpenClaw", "Python", "OpenAI", "Gmail API", "Slack", "Docker"],
+    category: "OpenClaw",
+    type: "hybrid",
+    featured: true,
+    features: [
+      "Automated email classification by urgency and topic",
+      "AI-powered response drafting for routine emails",
+      "Morning briefing delivered to Slack or Telegram",
+      "Critical email flagging with instant alerts",
+      "Docker-isolated secure deployment",
+      "Multi-account support (Gmail + Outlook)",
+    ],
+    architecture: [
+      "OpenClaw agent monitors inbox via channel integration",
+      "Emails classified by OpenAI (urgency, topic, sentiment)",
+      "Routine messages get auto-drafted responses",
+      "Critical items flagged for immediate attention",
+      "All activity logged to Airtable",
+      "Morning briefing compiled and sent to Slack/Telegram",
+    ],
+  },
+  {
+    id: 12,
+    slug: "claw-support",
+    title: "ClawSupport",
+    tagline:
+      "AI customer support agent built on OpenClaw that resolves tickets from your knowledge base and escalates what it can't handle.",
+    description:
+      "ClawSupport connects OpenClaw to your helpdesk (Zendesk, Freshdesk, or custom) and uses RAG with your documentation to answer customer questions accurately. It handles L1 support autonomously, escalates complex issues to humans, and learns from resolved tickets to improve over time.",
+    problem:
+      "Support teams are overwhelmed with repetitive L1 tickets while customers wait hours for answers that already exist in the documentation.",
+    solution:
+      "An OpenClaw agent with RAG-powered knowledge base search, multi-channel ticket ingestion, autonomous L1 resolution, smart escalation rules, and continuous learning from resolved tickets.",
+    tools: ["OpenClaw", "Python", "FastAPI", "OpenAI", "Airtable", "Slack"],
+    category: "OpenClaw",
+    type: "hybrid",
+    features: [
+      "RAG-powered answers from your documentation",
+      "Multi-channel support (email, Slack, web chat)",
+      "Autonomous L1 ticket resolution",
+      "Smart escalation to human agents",
+      "Resolution metrics dashboard",
+      "Continuous learning from resolved tickets",
+    ],
+    architecture: [
+      "Support ticket received via channel integration",
+      "OpenClaw queries knowledge base using RAG",
+      "High-confidence answers sent automatically",
+      "Low-confidence tickets escalated to humans",
+      "Resolution logged to Airtable with metrics",
+      "Weekly report generated with resolution stats",
+    ],
+  },
+  {
+    id: 13,
+    slug: "claw-client-manager",
+    title: "ClawClientManager",
+    tagline:
+      "AI client management agent that monitors communications, auto-triages requests, drafts responses, and ensures nothing falls through the cracks.",
+    description:
+      "ClawClientManager deploys an OpenClaw agent that monitors Slack channels, email, and WhatsApp for client requests. It auto-triages by urgency, drafts contextual responses using conversation history, schedules follow-ups, and sends you a daily client health dashboard.",
+    problem:
+      "Agencies and consultants juggle multiple client communications across channels, leading to missed messages, slow responses, and dropped follow-ups.",
+    solution:
+      "An OpenClaw agent with multi-channel monitoring (Slack, email, WhatsApp), AI-powered triage and response drafting, CRM integration for context, and automated follow-up scheduling.",
+    tools: ["OpenClaw", "Python", "OpenAI", "HubSpot", "Slack", "WhatsApp API"],
+    category: "OpenClaw",
+    type: "hybrid",
+    features: [
+      "Multi-channel client monitoring (Slack, email, WhatsApp)",
+      "AI urgency triage and prioritization",
+      "Contextual response drafting from conversation history",
+      "Automated follow-up scheduling",
+      "Client health dashboard",
+      "CRM auto-sync with HubSpot",
+    ],
+    architecture: [
+      "OpenClaw monitors Slack, email, and WhatsApp channels",
+      "Incoming messages classified by urgency and client",
+      "CRM context pulled from HubSpot for response drafting",
+      "Draft responses generated with full conversation context",
+      "Follow-ups scheduled automatically for pending items",
+      "Daily client health summary sent to dashboard",
+    ],
+  },
 ];

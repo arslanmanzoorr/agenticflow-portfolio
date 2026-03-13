@@ -1,6 +1,7 @@
 import { Tool } from "@/types";
 
 export const tools: Tool[] = [
+  { name: "OpenClaw", category: "AI Agent" },
   { name: "n8n", category: "Automation" },
   { name: "Python", category: "Programming" },
   { name: "Make.com", category: "Automation" },
@@ -9,13 +10,16 @@ export const tools: Tool[] = [
   { name: "Apify", category: "Automation" },
   { name: "HubSpot", category: "CRM" },
   { name: "OpenAI", category: "AI" },
+  { name: "Claude AI", category: "AI" },
   { name: "FastAPI", category: "Programming" },
   { name: "Shopify", category: "CRM" },
   { name: "Slack", category: "Communication" },
+  { name: "WhatsApp API", category: "Communication" },
   { name: "PostgreSQL", category: "Database" },
   { name: "Google Sheets", category: "Database" },
   { name: "Docker", category: "Infrastructure" },
   { name: "Webhooks", category: "Infrastructure" },
   { name: "Gmail API", category: "Communication" },
   { name: "Calendly", category: "Communication" },
+  { name: "Telegram", category: "Communication" },
 ];
