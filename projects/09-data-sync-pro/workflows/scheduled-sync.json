@@ -1,0 +1,214 @@
+{
+  "name": "Scheduled Sync - DataSync Pro",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.CONFIG_URL || 'file:///configs/sync-mappings.json'}}",
+        "options": {}
+      },
+      "id": "read-config",
+      "name": "Read Sync Mappings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $input.first().json;\nconst mappings = config.mappings || [];\nconst jobs = [];\n\nfor (const mapping of mappings) {\n  jobs.push({\n    json: {\n      name: mapping.name,\n      source: mapping.source,\n      destination: mapping.destination,\n      fields: mapping.fields,\n      sync_direction: mapping.sync_direction,\n      sync_key: mapping.sync_key || null,\n      conflict_resolution: mapping.conflict_resolution || 'latest_wins',\n      batch_size: config.global_settings.batch_size,\n      started_at: new Date().toISOString()\n    }\n  });\n}\n\nreturn jobs;"
+      },
+      "id": "split-jobs",
+      "name": "Split Into Sync Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "application": "={{$json.source.type === 'airtable' ? $env.AIRTABLE_BASE_ID : ''}}",
+        "table": "={{$json.source.table}}",
+        "options": {
+          "fields": []
+        }
+      },
+      "id": "airtable-read",
+      "name": "Airtable Read Records",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [910, 200],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst mapping = items[0].json;\nconst records = items.slice(1);\nconst fieldMap = mapping.fields;\nconst transformedRecords = [];\n\nfor (const record of records) {\n  const transformed = {};\n  for (const fieldMapping of fieldMap) {\n    let value = record.json[fieldMapping.source];\n    \n    switch (fieldMapping.transform) {\n      case 'lowercase':\n        value = typeof value === 'string' ? value.toLowerCase() : value;\n        break;\n      case 'uppercase':\n        value = typeof value === 'string' ? value.toUpperCase() : value;\n        break;\n      case 'capitalize':\n        value = typeof value === 'string' ? value.charAt(0).toUpperCase() + value.slice(1) : value;\n        break;\n      case 'date_format':\n        value = value ? new Date(value).toISOString().split('T')[0] : value;\n        break;\n      case 'integer':\n        value = parseInt(value, 10);\n        break;\n      case 'decimal':\n        value = parseFloat(value);\n        break;\n      case 'currency':\n        value = typeof value === 'number' ? `$${value.toFixed(2)}` : value;\n        break;\n      case 'join':\n        value = Array.isArray(value) ? value.join(fieldMapping.delimiter || ', ') : value;\n        break;\n      case 'map':\n        value = fieldMapping.map && fieldMapping.map[value] ? fieldMapping.map[value] : value;\n        break;\n      case 'json_stringify':\n        value = typeof value === 'object' ? JSON.stringify(value) : value;\n        break;\n      default:\n        break;\n    }\n    \n    transformed[fieldMapping.destination] = value;\n  }\n  transformedRecords.push({ json: transformed });\n}\n\nreturn transformedRecords;"
+      },
+      "id": "transform-fields",
+      "name": "Transform Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "spreadsheetId": "={{$env.GOOGLE_SHEET_ID}}",
+        "sheetName": "={{$json.destination_sheet || 'Sheet1'}}",
+        "columns": "A:Z",
+        "options": {
+          "valueInputMode": "RAW"
+        }
+      },
+      "id": "gsheets-update",
+      "name": "Google Sheets Update",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [1350, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gsheets-cred-1",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst totalSynced = items.length;\nconst jobName = items[0]?.json?.sync_job || 'unknown';\nconst completedAt = new Date().toISOString();\n\nreturn [{\n  json: {\n    summary: `Sync completed: ${totalSynced} records processed`,\n    job_name: jobName,\n    records_synced: totalSynced,\n    completed_at: completedAt,\n    status: 'success'\n  }\n}];"
+      },
+      "id": "execution-summary",
+      "name": "Execution Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SLACK_WEBHOOK_URL}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=:white_check_mark: *DataSync Pro - Sync Complete*\n\nJob: {{$json.job_name}}\nRecords synced: {{$json.records_synced}}\nCompleted: {{$json.completed_at}}\nStatus: {{$json.status}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "slack-summary",
+      "name": "Slack Summary Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SLACK_WEBHOOK_URL}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=:rotating_light: *DataSync Pro - Sync Error*\n\nError: {{$json.error.message}}\nNode: {{$json.error.node}}\nTimestamp: {{$json.error.timestamp}}\n\nPlease investigate immediately."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "slack-error",
+      "name": "Slack Error Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1350, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const error = $input.first().json;\nreturn [{\n  json: {\n    error: {\n      message: error.message || 'Unknown error during sync',\n      node: error.node || 'Unknown',\n      timestamp: new Date().toISOString(),\n      workflow: 'Scheduled Sync',\n      details: error.description || ''\n    }\n  }\n}];"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 500]
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [{ "node": "Read Sync Mappings", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Sync Mappings": {
+      "main": [
+        [{ "node": "Split Into Sync Jobs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Into Sync Jobs": {
+      "main": [
+        [{ "node": "Airtable Read Records", "type": "main", "index": 0 }]
+      ]
+    },
+    "Airtable Read Records": {
+      "main": [
+        [{ "node": "Transform Fields", "type": "main", "index": 0 }]
+      ]
+    },
+    "Transform Fields": {
+      "main": [
+        [{ "node": "Google Sheets Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Sheets Update": {
+      "main": [
+        [{ "node": "Execution Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "Execution Summary": {
+      "main": [
+        [{ "node": "Slack Summary Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [{ "node": "Slack Error Notification", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "datasync-pro" },
+    { "name": "scheduled" }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}

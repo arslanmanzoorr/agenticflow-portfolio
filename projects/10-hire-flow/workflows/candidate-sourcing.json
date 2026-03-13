@@ -1,0 +1,453 @@
+{
+  "name": "HireFlow - Candidate Sourcing Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 500]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Jobs",
+          "mode": "name"
+        },
+        "filterByFormula": "AND({Status} = 'Active', {Auto Source} = TRUE())"
+      },
+      "id": "get-active-jobs",
+      "name": "Get Active Jobs",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [320, 400],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-creds",
+          "name": "Airtable API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-jobs",
+      "name": "Loop Over Jobs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [520, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/{{ $env.APIFY_ACTOR_ID }}/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"jobTitles\": [$json.fields['Job Title']],\n  \"locations\": $json.fields['Locations'] ? $json.fields['Locations'].split(',').map(l => l.trim()) : [],\n  \"requiredSkills\": $json.fields['Required Skills'] ? $json.fields['Required Skills'].split(',').map(s => s.trim()) : [],\n  \"minExperience\": $json.fields['Min Experience'] || 0,\n  \"maxExperience\": $json.fields['Max Experience'] || 99,\n  \"minSkillMatch\": $json.fields['Min Skill Match'] || 2,\n  \"maxResults\": 50\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "run-apify-scraper",
+      "name": "Run Apify LinkedIn Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 400],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "apify-auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $json.data.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "options": {}
+      },
+      "id": "poll-run-status",
+      "name": "Poll Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 400],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "apify-auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-check",
+              "leftValue": "={{ $json.data.status }}",
+              "rightValue": "SUCCEEDED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-run-status",
+      "name": "Run Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1,
+      "position": [1180, 400]
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "wait-for-run",
+      "name": "Wait 15s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1180, 600]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/datasets/{{ $json.data.defaultDatasetId }}/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "get-scraper-results",
+      "name": "Get Scraper Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 300],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "apify-auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-candidates",
+      "name": "Loop Over Candidates",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1600, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a technical recruiter AI assistant. Score candidates against job requirements on a scale of 0-100. Respond with valid JSON only."
+            },
+            {
+              "role": "user",
+              "content": "=Score this candidate against the job requirements.\n\nJob Requirements:\n- Title: {{ $node['Get Active Jobs'].json.fields['Job Title'] }}\n- Required Skills: {{ $node['Get Active Jobs'].json.fields['Required Skills'] }}\n- Min Experience: {{ $node['Get Active Jobs'].json.fields['Min Experience'] }} years\n- Job Description: {{ $node['Get Active Jobs'].json.fields['Description'] }}\n\nCandidate:\n- Name: {{ $json.name }}\n- Headline: {{ $json.headline }}\n- Experience: {{ $json.experience_years }} years\n- Skills: {{ $json.skills.join(', ') }}\n- Current Role: {{ $json.current_title }} at {{ $json.current_company }}\n- Skill Match Score (automated): {{ $json.skill_match_score }}\n\nRespond with JSON:\n{\n  \"overall_score\": <0-100>,\n  \"skill_fit\": <0-100>,\n  \"experience_fit\": <0-100>,\n  \"seniority_fit\": <0-100>,\n  \"recommendation\": \"strong_match\" | \"good_match\" | \"partial_match\" | \"weak_match\",\n  \"strengths\": [\"...\"],\n  \"gaps\": [\"...\"],\n  \"notes\": \"Brief assessment\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 500
+        }
+      },
+      "id": "score-with-openai",
+      "name": "Score Candidate (OpenAI)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.6,
+      "position": [1820, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-creds",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const candidate = $('Loop Over Candidates').first().json;\nconst aiResponse = JSON.parse($json.message.content);\n\nreturn [{\n  json: {\n    candidate_id: candidate.candidate_id,\n    name: candidate.name,\n    email: candidate.email || '',\n    headline: candidate.headline,\n    current_company: candidate.current_company,\n    current_title: candidate.current_title,\n    location: candidate.location,\n    experience_years: candidate.experience_years,\n    skills: candidate.skills.join(', '),\n    education: candidate.education.map(e => `${e.degree} - ${e.school}`).join('; '),\n    profile_url: candidate.profile_url,\n    skill_match_score: candidate.skill_match_score,\n    ai_overall_score: aiResponse.overall_score,\n    ai_skill_fit: aiResponse.skill_fit,\n    ai_experience_fit: aiResponse.experience_fit,\n    ai_recommendation: aiResponse.recommendation,\n    ai_strengths: aiResponse.strengths.join(', '),\n    ai_gaps: aiResponse.gaps.join(', '),\n    ai_notes: aiResponse.notes,\n    source: 'linkedin_sourcing',\n    sourced_at: new Date().toISOString(),\n    status: aiResponse.overall_score >= 70 ? 'Qualified' : 'Reviewed',\n    job_id: $('Get Active Jobs').first().json.id\n  }\n}];"
+      },
+      "id": "merge-candidate-data",
+      "name": "Merge Candidate + AI Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2040, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "score-threshold",
+              "leftValue": "={{ $json.ai_overall_score }}",
+              "rightValue": 60,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "score-threshold-check",
+      "name": "Score >= 60?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1,
+      "position": [2260, 300]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Candidates",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $json.name }}",
+            "Email": "={{ $json.email }}",
+            "Headline": "={{ $json.headline }}",
+            "Current Company": "={{ $json.current_company }}",
+            "Current Title": "={{ $json.current_title }}",
+            "Location": "={{ $json.location }}",
+            "Experience Years": "={{ $json.experience_years }}",
+            "Skills": "={{ $json.skills }}",
+            "Education": "={{ $json.education }}",
+            "LinkedIn URL": "={{ $json.profile_url }}",
+            "Source": "={{ $json.source }}",
+            "AI Score": "={{ $json.ai_overall_score }}",
+            "AI Recommendation": "={{ $json.ai_recommendation }}",
+            "AI Strengths": "={{ $json.ai_strengths }}",
+            "AI Gaps": "={{ $json.ai_gaps }}",
+            "AI Notes": "={{ $json.ai_notes }}",
+            "Status": "={{ $json.status }}",
+            "Job": ["={{ $json.job_id }}"],
+            "Sourced At": "={{ $json.sourced_at }}"
+          }
+        }
+      },
+      "id": "store-in-airtable",
+      "name": "Store in Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [2480, 200],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-creds",
+          "name": "Airtable API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#hiring",
+          "mode": "name"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  {\n    \"type\": \"header\",\n    \"text\": {\n      \"type\": \"plain_text\",\n      \"text\": \"New Qualified Candidate Sourced\"\n    }\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      { \"type\": \"mrkdwn\", \"text\": \"*Name:*\\n\" + $json.name },\n      { \"type\": \"mrkdwn\", \"text\": \"*Score:*\\n\" + $json.ai_overall_score + \"/100\" },\n      { \"type\": \"mrkdwn\", \"text\": \"*Role:*\\n\" + $json.current_title },\n      { \"type\": \"mrkdwn\", \"text\": \"*Recommendation:*\\n\" + $json.ai_recommendation },\n      { \"type\": \"mrkdwn\", \"text\": \"*Strengths:*\\n\" + $json.ai_strengths },\n      { \"type\": \"mrkdwn\", \"text\": \"*Gaps:*\\n\" + $json.ai_gaps }\n    ]\n  },\n  {\n    \"type\": \"actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"text\": { \"type\": \"plain_text\", \"text\": \"View LinkedIn\" },\n        \"url\": $json.profile_url,\n        \"style\": \"primary\"\n      },\n      {\n        \"type\": \"button\",\n        \"text\": { \"type\": \"plain_text\", \"text\": \"View in Airtable\" },\n        \"url\": \"https://airtable.com/\" + $env.AIRTABLE_BASE_ID\n      }\n    ]\n  }\n]) }}"
+      },
+      "id": "notify-slack",
+      "name": "Notify Slack #hiring",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2700, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-creds",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#hiring",
+          "mode": "name"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify([\n  {\n    \"type\": \"header\",\n    \"text\": {\n      \"type\": \"plain_text\",\n      \"text\": \"Sourcing Run Complete - Summary\"\n    }\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"*Job:* \" + $node['Get Active Jobs'].json.fields['Job Title'] + \"\\n\" +\n        \"*Candidates Scraped:* \" + $node['Get Scraper Results'].json.length + \"\\n\" +\n        \"*Qualified (Score >= 60):* \" + $node['Store in Airtable'].json.length + \"\\n\" +\n        \"*Run Time:* \" + new Date().toISOString()\n    }\n  }\n]) }}"
+      },
+      "id": "send-summary",
+      "name": "Send Run Summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2700, 500],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-creds",
+          "name": "Slack API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Get Active Jobs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Get Active Jobs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Active Jobs": {
+      "main": [
+        [{ "node": "Loop Over Jobs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Loop Over Jobs": {
+      "main": [
+        [{ "node": "Run Apify LinkedIn Scraper", "type": "main", "index": 0 }],
+        [{ "node": "Send Run Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Apify LinkedIn Scraper": {
+      "main": [
+        [{ "node": "Poll Run Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Poll Run Status": {
+      "main": [
+        [{ "node": "Run Succeeded?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Succeeded?": {
+      "main": [
+        [{ "node": "Get Scraper Results", "type": "main", "index": 0 }],
+        [{ "node": "Wait 15s", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait 15s": {
+      "main": [
+        [{ "node": "Poll Run Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Scraper Results": {
+      "main": [
+        [{ "node": "Loop Over Candidates", "type": "main", "index": 0 }]
+      ]
+    },
+    "Loop Over Candidates": {
+      "main": [
+        [{ "node": "Score Candidate (OpenAI)", "type": "main", "index": 0 }],
+        [{ "node": "Loop Over Jobs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Score Candidate (OpenAI)": {
+      "main": [
+        [{ "node": "Merge Candidate + AI Score", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Candidate + AI Score": {
+      "main": [
+        [{ "node": "Score >= 60?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Score >= 60?": {
+      "main": [
+        [{ "node": "Store in Airtable", "type": "main", "index": 0 }],
+        [{ "node": "Loop Over Candidates", "type": "main", "index": 0 }]
+      ]
+    },
+    "Store in Airtable": {
+      "main": [
+        [{ "node": "Notify Slack #hiring", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Slack #hiring": {
+      "main": [
+        [{ "node": "Loop Over Candidates", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "hireflow" },
+    { "name": "sourcing" },
+    { "name": "linkedin" }
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+}

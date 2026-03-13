@@ -1,0 +1,122 @@
+{
+    "name": "price-radar-scraper",
+    "version": "1.0.0",
+    "buildTag": "latest",
+    "env": null,
+    "defaultRunOptions": {
+        "build": "latest",
+        "timeoutSecs": 300,
+        "memoryMbytes": 512
+    },
+    "input": {
+        "title": "PriceRadar Scraper Input",
+        "description": "Configure URLs to monitor, CSS selectors for data extraction, and output options.",
+        "type": "object",
+        "schemaVersion": 1,
+        "properties": {
+            "urls": {
+                "title": "Product URLs",
+                "description": "List of product page URLs to scrape. Each entry can be a URL string or an object with 'url', 'selectors', and 'competitorName' fields.",
+                "type": "array",
+                "editor": "json",
+                "items": {
+                    "oneOf": [
+                        {
+                            "type": "string",
+                            "format": "uri"
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "url": {
+                                    "type": "string",
+                                    "format": "uri"
+                                },
+                                "competitorName": {
+                                    "type": "string"
+                                },
+                                "selectors": {
+                                    "type": "object",
+                                    "properties": {
+                                        "product_name": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        },
+                                        "price": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        },
+                                        "availability": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        }
+                                    }
+                                }
+                            },
+                            "required": ["url"]
+                        }
+                    ]
+                },
+                "prefill": [
+                    {
+                        "url": "https://example.com/product/widget-pro",
+                        "competitorName": "ExampleStore",
+                        "selectors": {
+                            "product_name": ["h1.product-title"],
+                            "price": [".price-current"],
+                            "availability": [".stock-status"]
+                        }
+                    }
+                ]
+            },
+            "selectors": {
+                "title": "Default CSS Selectors",
+                "description": "Default CSS selectors applied to all URLs unless overridden per-URL. Each field accepts an array of selectors tried in order.",
+                "type": "object",
+                "editor": "json",
+                "properties": {
+                    "product_name": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "default": ["h1.product-title", "h1[itemprop='name']", "#productTitle"]
+                    },
+                    "price": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "default": ["[itemprop='price']", ".price-current", ".product-price"]
+                    },
+                    "availability": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "default": ["[itemprop='availability']", ".stock-status", "#availability"]
+                    }
+                },
+                "default": {}
+            },
+            "competitorName": {
+                "title": "Default Competitor Name",
+                "description": "Name of the competitor being monitored. Applied to all results unless overridden per-URL.",
+                "type": "string",
+                "editor": "textfield",
+                "default": ""
+            },
+            "webhookUrl": {
+                "title": "Webhook URL",
+                "description": "URL to POST scraped results to (e.g., your PriceRadar API endpoint). Leave empty to only store in Apify dataset.",
+                "type": "string",
+                "editor": "textfield",
+                "nullable": true
+            },
+            "requestDelay": {
+                "title": "Request Delay (seconds)",
+                "description": "Delay between requests in seconds to avoid rate limiting.",
+                "type": "integer",
+                "editor": "number",
+                "default": 2,
+                "minimum": 0,
+                "maximum": 30
+            }
+        },
+        "required": ["urls"]
+    }
+}

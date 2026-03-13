@@ -1,0 +1,212 @@
+{
+  "name": "ContentEngine - Content Scheduler",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Generated Content",
+        "filterByFormula": "AND({Status} = 'scheduled', IS_BEFORE({PublishAt}, NOW()))",
+        "returnAll": true
+      },
+      "id": "airtable-query",
+      "name": "Get Scheduled Content",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 1,
+      "position": [470, 300],
+      "credentials": {
+        "airtableApi": {
+          "id": "1",
+          "name": "Airtable Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.fields ? 1 : 0 }}",
+              "operation": "equal",
+              "value2": 1
+            }
+          ]
+        }
+      },
+      "id": "check-results",
+      "name": "Has Content to Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/publish' }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content_id",
+              "value": "={{ $json.fields['Content ID'] }}"
+            },
+            {
+              "name": "platform",
+              "value": "={{ $json.fields['Platform'] }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $json.fields['Content'] }}"
+            },
+            {
+              "name": "hashtags",
+              "value": "={{ $json.fields['Hashtags'] }}"
+            },
+            {
+              "name": "image_prompt",
+              "value": "={{ $json.fields['Image Prompt'] }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "publish-request",
+      "name": "Publish to Platform API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Generated Content",
+        "id": "={{ $json.id || $node['Get Scheduled Content'].json.id }}",
+        "fields": {
+          "Status": "published",
+          "PublishedAt": "={{ new Date().toISOString() }}"
+        }
+      },
+      "id": "airtable-update",
+      "name": "Mark as Published",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 1,
+      "position": [1130, 200],
+      "credentials": {
+        "airtableApi": {
+          "id": "1",
+          "name": "Airtable Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#content-engine",
+        "text": ":white_check_mark: *Content Published*\n\n*Platform:* {{ $node['Get Scheduled Content'].json.fields['Platform'] }}\n*Topic:* {{ $node['Get Scheduled Content'].json.fields['Topic'] }}\n*Content ID:* {{ $node['Get Scheduled Content'].json.fields['Content ID'] }}\n*Published at:* {{ new Date().toISOString() }}",
+        "otherOptions": {}
+      },
+      "id": "slack-notify",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1350, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "2",
+          "name": "Slack Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Scheduled Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Scheduled Content": {
+      "main": [
+        [
+          {
+            "node": "Has Content to Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Content to Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish to Platform API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Publish to Platform API": {
+      "main": [
+        [
+          {
+            "node": "Mark as Published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Published": {
+      "main": [
+        [
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "content-engine",
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

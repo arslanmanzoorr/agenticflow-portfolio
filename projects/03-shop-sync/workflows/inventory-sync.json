@@ -1,0 +1,443 @@
+{
+  "name": "ShopSync - Inventory Sync",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch-shopify-products",
+      "name": "Fetch Shopify Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://{{ $env.SHOPIFY_STORE_DOMAIN }}/admin/api/{{ $env.SHOPIFY_API_VERSION }}/products.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "fields",
+              "value": "id,title,variants,status"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.headers.link ? $response.headers.link.match(/<([^>]+)>; rel=\"next\"/)?.[1] : '' }}",
+              "paginationCompleteWhen": "receiveSpecificStatusCodes",
+              "statusCodesWhenComplete": "200"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "shopify-header-auth",
+          "name": "Shopify Admin API"
+        }
+      }
+    },
+    {
+      "id": "split-products",
+      "name": "Split Product Variants",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [720, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "variants-flat",
+              "name": "variants",
+              "value": "={{ $json.products.flatMap(p => p.variants.map(v => ({ productId: String(p.id), productName: p.title, variantId: String(v.id), sku: v.sku || `NOSKU-${v.id}`, inventoryQuantity: v.inventory_quantity, price: v.price, inventoryItemId: String(v.inventory_item_id) }))) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "split-into-items",
+      "name": "Split Into Items",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [960, 300],
+      "parameters": {
+        "fieldToSplitOut": "variants",
+        "options": {}
+      }
+    },
+    {
+      "id": "fetch-airtable-inventory",
+      "name": "Fetch Airtable Inventory",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [1200, 300],
+      "parameters": {
+        "operation": "search",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "={{ $env.AIRTABLE_INVENTORY_TABLE_ID }}",
+        "filterByFormula": "={SKU}='{{ $json.sku }}'",
+        "options": {
+          "fields": ["SKU", "Product Name", "Current Stock", "Reorder Threshold", "Shopify Product ID"]
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-credentials",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "id": "check-record-exists",
+      "name": "Record Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1440, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-record",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "update-airtable-record",
+      "name": "Update Inventory Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [1700, 220],
+      "parameters": {
+        "operation": "update",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "={{ $env.AIRTABLE_INVENTORY_TABLE_ID }}",
+        "id": "={{ $json.id }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Current Stock": "={{ $('Split Into Items').item.json.inventoryQuantity }}",
+            "Retail Price": "={{ parseFloat($('Split Into Items').item.json.price) }}",
+            "Last Synced": "={{ new Date().toISOString() }}",
+            "Stock Status": "={{ $('Split Into Items').item.json.inventoryQuantity <= 0 ? 'Out of Stock' : $('Split Into Items').item.json.inventoryQuantity <= ($json.fields?.['Reorder Threshold'] || 10) ? ($('Split Into Items').item.json.inventoryQuantity <= 3 ? 'Critical' : 'Low Stock') : 'In Stock' }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-credentials",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "id": "create-airtable-record",
+      "name": "Create Inventory Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [1700, 400],
+      "parameters": {
+        "operation": "create",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "={{ $env.AIRTABLE_INVENTORY_TABLE_ID }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "SKU": "={{ $('Split Into Items').item.json.sku }}",
+            "Product Name": "={{ $('Split Into Items').item.json.productName }}",
+            "Shopify Product ID": "={{ $('Split Into Items').item.json.productId }}",
+            "Shopify Variant ID": "={{ $('Split Into Items').item.json.variantId }}",
+            "Current Stock": "={{ $('Split Into Items').item.json.inventoryQuantity }}",
+            "Retail Price": "={{ parseFloat($('Split Into Items').item.json.price) }}",
+            "Reorder Threshold": 10,
+            "Reorder Quantity": 50,
+            "Last Synced": "={{ new Date().toISOString() }}",
+            "Stock Status": "={{ $('Split Into Items').item.json.inventoryQuantity <= 0 ? 'Out of Stock' : $('Split Into Items').item.json.inventoryQuantity <= 10 ? 'Low Stock' : 'In Stock' }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-credentials",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "id": "merge-results",
+      "name": "Merge Sync Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1960, 300],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "generate-report",
+      "name": "Generate Inventory Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2200, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "report-data",
+              "name": "report",
+              "value": "={{ (() => { const items = $input.all(); const totalProducts = items.length; const inStock = items.filter(i => (i.json.fields?.['Stock Status'] || i.json['Stock Status']) === 'In Stock').length; const lowStock = items.filter(i => ['Low Stock', 'Critical'].includes(i.json.fields?.['Stock Status'] || i.json['Stock Status'])).length; const outOfStock = items.filter(i => (i.json.fields?.['Stock Status'] || i.json['Stock Status']) === 'Out of Stock').length; return JSON.stringify({ totalProducts, inStock, lowStock, outOfStock, syncTime: new Date().toISOString() }); })() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "format-slack-report",
+      "name": "Format Slack Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2440, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "slack-report",
+              "name": "slackMessage",
+              "value": "=:bar_chart: *Inventory Sync Report*\n_{{ new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }}_\n\n{{ (() => { const r = JSON.parse($json.report); return `:white_check_mark: *In Stock:* ${r.inStock} products\\n:warning: *Low / Critical Stock:* ${r.lowStock} products\\n:x: *Out of Stock:* ${r.outOfStock} products\\n:package: *Total Tracked:* ${r.totalProducts} products\\n\\n_Sync completed at ${new Date(r.syncTime).toLocaleTimeString()}_`; })() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "post-slack-report",
+      "name": "Post Inventory Report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2680, 300],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_INVENTORY_CHANNEL_ID }}",
+        "text": "={{ $json.slackMessage }}",
+        "otherOptions": {
+          "mrkdwn": true,
+          "unfurl_links": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credentials",
+          "name": "Slack Bot Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Shopify Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Shopify Products": {
+      "main": [
+        [
+          {
+            "node": "Split Product Variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Product Variants": {
+      "main": [
+        [
+          {
+            "node": "Split Into Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Items": {
+      "main": [
+        [
+          {
+            "node": "Fetch Airtable Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Airtable Inventory": {
+      "main": [
+        [
+          {
+            "node": "Record Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Exists?": {
+      "main": [
+        [
+          {
+            "node": "Update Inventory Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Inventory Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Inventory Record": {
+      "main": [
+        [
+          {
+            "node": "Merge Sync Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Inventory Record": {
+      "main": [
+        [
+          {
+            "node": "Merge Sync Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Sync Results": {
+      "main": [
+        [
+          {
+            "node": "Generate Inventory Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Inventory Report": {
+      "main": [
+        [
+          {
+            "node": "Format Slack Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack Report": {
+      "main": [
+        [
+          {
+            "node": "Post Inventory Report to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "ShopSync",
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z"
+    },
+    {
+      "name": "Inventory",
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

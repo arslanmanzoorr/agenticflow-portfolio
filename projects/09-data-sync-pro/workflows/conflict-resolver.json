@@ -1,0 +1,431 @@
+{
+  "name": "Conflict Resolution Workflow",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Conflict Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [220, 300],
+      "parameters": {
+        "path": "conflict-resolver",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "webhookId": "conflict-resolver-webhook"
+    },
+    {
+      "id": "validate-webhook",
+      "name": "Validate Webhook Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "reject-unauthorized",
+      "name": "Reject Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [660, 480],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', message: 'Unauthorized' } }}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "parse-conflict-data",
+      "name": "Parse Conflict Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 200],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst conflictData = typeof body.conflict_data === 'string' \n  ? JSON.parse(body.conflict_data) \n  : body.conflict_data;\n\nconst airtableTimestamp = new Date(conflictData.at_modified || 0).getTime();\nconst sheetsTimestamp = new Date(conflictData.gs_modified || 0).getTime();\nconst timeDiff = Math.abs(airtableTimestamp - sheetsTimestamp);\n\n// Load conflict resolution config\nconst config = {\n  strategy: 'last_write_wins',\n  manual_review_threshold_ms: 60000,\n  protected_fields: ['email', 'sync_id'],\n  auto_resolve_fields: ['status', 'category', 'amount']\n};\n\nconst parsed = {\n  conflict_id: `CONF-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,\n  sync_id: conflictData.sync_id,\n  workflow_id: body.workflow_id || 'unknown',\n  airtable_data: {\n    name: conflictData.at_name,\n    email: conflictData.at_email,\n    status: conflictData.at_status,\n    category: conflictData.at_category,\n    amount: conflictData.at_amount,\n    last_modified: conflictData.at_modified,\n    record_id: conflictData.airtable_record_id\n  },\n  sheets_data: {\n    name: conflictData.gs_name,\n    email: conflictData.gs_email,\n    status: conflictData.gs_status,\n    category: conflictData.gs_category,\n    amount: conflictData.gs_amount,\n    last_modified: conflictData.gs_modified,\n    row_number: conflictData.sheet_row_number\n  },\n  airtable_timestamp: airtableTimestamp,\n  sheets_timestamp: sheetsTimestamp,\n  time_diff_ms: timeDiff,\n  resolution_config: config,\n  detected_at: new Date().toISOString()\n};\n\nreturn [{ json: parsed }];"
+      }
+    },
+    {
+      "id": "determine-resolution-strategy",
+      "name": "Determine Resolution Strategy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "parameters": {
+        "jsCode": "const conflict = $input.first().json;\nconst config = conflict.resolution_config;\n\nlet resolution = {\n  ...conflict,\n  conflicting_fields: [],\n  resolution_type: 'auto',\n  resolution_strategy: config.strategy,\n  winner: null,\n  needs_manual_review: false\n};\n\n// Identify which fields are in conflict\nconst fieldPairs = [\n  { field: 'name', at: conflict.airtable_data.name, gs: conflict.sheets_data.name },\n  { field: 'email', at: conflict.airtable_data.email, gs: conflict.sheets_data.email },\n  { field: 'status', at: conflict.airtable_data.status, gs: conflict.sheets_data.status },\n  { field: 'category', at: conflict.airtable_data.category, gs: conflict.sheets_data.category },\n  { field: 'amount', at: conflict.airtable_data.amount, gs: conflict.sheets_data.amount }\n];\n\nfor (const pair of fieldPairs) {\n  if (pair.at !== pair.gs) {\n    const isProtected = config.protected_fields.includes(pair.field);\n    resolution.conflicting_fields.push({\n      field: pair.field,\n      airtable_value: pair.at,\n      sheets_value: pair.gs,\n      is_protected: isProtected\n    });\n    if (isProtected) {\n      resolution.needs_manual_review = true;\n      resolution.resolution_type = 'manual';\n    }\n  }\n}\n\n// Apply last-write-wins for auto-resolvable conflicts\nif (!resolution.needs_manual_review) {\n  if (conflict.airtable_timestamp >= conflict.sheets_timestamp) {\n    resolution.winner = 'airtable';\n  } else {\n    resolution.winner = 'google_sheets';\n  }\n}\n\nreturn [{ json: resolution }];"
+      }
+    },
+    {
+      "id": "route-resolution",
+      "name": "Route by Resolution Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1140, 200],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needs_manual_review }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "apply-auto-resolution",
+      "name": "Apply Auto Resolution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1380, 300],
+      "parameters": {
+        "jsCode": "const resolution = $input.first().json;\nconst winner = resolution.winner;\nconst sourceData = winner === 'airtable' \n  ? resolution.airtable_data \n  : resolution.sheets_data;\n\nconst resolved = {\n  ...resolution,\n  resolved_data: {\n    sync_id: resolution.sync_id,\n    name: sourceData.name,\n    email: sourceData.email,\n    status: sourceData.status,\n    category: sourceData.category,\n    amount: sourceData.amount,\n    last_modified: new Date().toISOString()\n  },\n  update_targets: winner === 'airtable'\n    ? ['google_sheets']\n    : ['airtable'],\n  resolution_status: 'resolved_auto',\n  resolved_at: new Date().toISOString()\n};\n\nreturn [{ json: resolved }];"
+      }
+    },
+    {
+      "id": "update-airtable-resolved",
+      "name": "Update Airtable (If Sheets Won)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1620, 240],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.winner }}",
+              "rightValue": "google_sheets",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "apply-to-airtable",
+      "name": "Apply Resolution to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1860, 180],
+      "parameters": {
+        "operation": "update",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Master Database",
+        "id": "={{ $json.airtable_data.record_id }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $json.resolved_data.name }}",
+            "Email": "={{ $json.resolved_data.email }}",
+            "Status": "={{ $json.resolved_data.status }}",
+            "Category": "={{ $json.resolved_data.category }}",
+            "Amount": "={{ $json.resolved_data.amount }}",
+            "Last Modified": "={{ $json.resolved_data.last_modified }}"
+          }
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "apply-to-sheets",
+      "name": "Apply Resolution to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [1860, 320],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sync Sheet"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Sync ID": "={{ $json.resolved_data.sync_id }}",
+            "Name": "={{ $json.resolved_data.name }}",
+            "Email": "={{ $json.resolved_data.email }}",
+            "Status": "={{ $json.resolved_data.status }}",
+            "Category": "={{ $json.resolved_data.category }}",
+            "Amount": "={{ $json.resolved_data.amount }}",
+            "Last Modified": "={{ $json.resolved_data.last_modified }}"
+          }
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred-1",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "log-conflict-auto",
+      "name": "Log Auto-Resolved Conflict",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [2100, 260],
+      "parameters": {
+        "operation": "create",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Conflicts",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Conflict ID": "={{ $json.conflict_id }}",
+            "Sync ID": "={{ $json.sync_id }}",
+            "Conflicting Fields": "={{ $json.conflicting_fields.map(f => f.field).join(', ') }}",
+            "Airtable Values": "={{ JSON.stringify($json.airtable_data) }}",
+            "Sheets Values": "={{ JSON.stringify($json.sheets_data) }}",
+            "Resolution Strategy": "={{ $json.resolution_strategy }}",
+            "Winner": "={{ $json.winner }}",
+            "Resolution Type": "Auto",
+            "Status": "Resolved",
+            "Detected At": "={{ $json.detected_at }}",
+            "Resolved At": "={{ $json.resolved_at }}",
+            "Source Workflow": "={{ $json.workflow_id }}"
+          }
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "log-conflict-manual",
+      "name": "Log Manual Review Conflict",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1380, 100],
+      "parameters": {
+        "operation": "create",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Conflicts",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Conflict ID": "={{ $json.conflict_id }}",
+            "Sync ID": "={{ $json.sync_id }}",
+            "Conflicting Fields": "={{ $json.conflicting_fields.map(f => f.field).join(', ') }}",
+            "Airtable Values": "={{ JSON.stringify($json.airtable_data) }}",
+            "Sheets Values": "={{ JSON.stringify($json.sheets_data) }}",
+            "Resolution Strategy": "manual_review",
+            "Winner": "",
+            "Resolution Type": "Manual",
+            "Status": "Pending Review",
+            "Detected At": "={{ $json.detected_at }}",
+            "Resolved At": "",
+            "Source Workflow": "={{ $json.workflow_id }}"
+          }
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "slack-manual-review",
+      "name": "Slack Manual Review Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1620, 60],
+      "parameters": {
+        "operation": "sendMessage",
+        "channel": "={{ $env.SLACK_ALERT_CHANNEL }}",
+        "text": ":mag: *DataSync Pro - Manual Review Required*\n\n*Conflict ID:* {{ $json.conflict_id }}\n*Record:* {{ $json.sync_id }}\n*Protected Fields in Conflict:* {{ $json.conflicting_fields.filter(f => f.is_protected).map(f => f.field).join(', ') }}\n\n*Airtable Values:*\n{{ $json.conflicting_fields.map(f => '  ' + f.field + ': ' + f.airtable_value).join('\\n') }}\n\n*Google Sheets Values:*\n{{ $json.conflicting_fields.map(f => '  ' + f.field + ': ' + f.sheets_value).join('\\n') }}\n\nPlease review and resolve in the Conflicts table.",
+        "otherOptions": {
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "slack-cred-1",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2340, 260],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'success', conflict_id: $json.conflict_id, resolution_type: $json.resolution_type || 'manual', winner: $json.winner || 'pending_review' } }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "respond-manual",
+      "name": "Respond Manual Review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1860, 60],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'pending_review', conflict_id: $json.conflict_id, resolution_type: 'manual', message: 'Conflict requires manual review' } }}",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Conflict Webhook": {
+      "main": [
+        [
+          { "node": "Validate Webhook Secret", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Validate Webhook Secret": {
+      "main": [
+        [
+          { "node": "Parse Conflict Data", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Reject Unauthorized", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Parse Conflict Data": {
+      "main": [
+        [
+          { "node": "Determine Resolution Strategy", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Determine Resolution Strategy": {
+      "main": [
+        [
+          { "node": "Route by Resolution Type", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Route by Resolution Type": {
+      "main": [
+        [
+          { "node": "Log Manual Review Conflict", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Apply Auto Resolution", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Log Manual Review Conflict": {
+      "main": [
+        [
+          { "node": "Slack Manual Review Alert", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Slack Manual Review Alert": {
+      "main": [
+        [
+          { "node": "Respond Manual Review", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Apply Auto Resolution": {
+      "main": [
+        [
+          { "node": "Update Airtable (If Sheets Won)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Update Airtable (If Sheets Won)": {
+      "main": [
+        [
+          { "node": "Apply Resolution to Airtable", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Apply Resolution to Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Apply Resolution to Airtable": {
+      "main": [
+        [
+          { "node": "Log Auto-Resolved Conflict", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Apply Resolution to Sheets": {
+      "main": [
+        [
+          { "node": "Log Auto-Resolved Conflict", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Log Auto-Resolved Conflict": {
+      "main": [
+        [
+          { "node": "Respond Success", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "conflict-resolution" },
+    { "name": "production" },
+    { "name": "webhook" }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-15T10:30:00.000Z",
+  "versionId": "1.0.0"
+}

@@ -1,0 +1,37 @@
+{
+  "baseName": "Lead Harvester",
+  "tables": [
+    {
+      "name": "Leads",
+      "description": "All scraped and enriched leads",
+      "fields": [
+        { "name": "Name", "type": "singleLineText", "description": "Business or contact name" },
+        { "name": "Email", "type": "email", "description": "Primary email address" },
+        { "name": "Phone", "type": "phoneNumber", "description": "Primary phone number" },
+        { "name": "Company", "type": "singleLineText", "description": "Company name" },
+        { "name": "Website", "type": "url", "description": "Company website URL" },
+        { "name": "Source", "type": "singleSelect", "options": ["google_maps", "linkedin", "manual"], "description": "Lead source" },
+        { "name": "Score", "type": "number", "description": "Lead qualification score (0-100)" },
+        { "name": "Status", "type": "singleSelect", "options": ["New", "Qualified", "Unqualified", "Contacted", "Converted"], "description": "Current lead status" },
+        { "name": "Category", "type": "singleLineText", "description": "Business category from Google Maps" },
+        { "name": "Rating", "type": "number", "description": "Google Maps rating" },
+        { "name": "Review Count", "type": "number", "description": "Number of Google reviews" },
+        { "name": "Address", "type": "singleLineText", "description": "Physical address" },
+        { "name": "Enrichment Data", "type": "longText", "description": "Raw Clearbit enrichment JSON" },
+        { "name": "Scoring Factors", "type": "longText", "description": "Breakdown of scoring factors" },
+        { "name": "Created At", "type": "dateTime", "description": "When the lead was created" },
+        { "name": "Pushed to CRM", "type": "checkbox", "description": "Whether lead was sent to HubSpot" }
+      ]
+    },
+    {
+      "name": "ScoringLog",
+      "description": "Audit log of all scoring decisions",
+      "fields": [
+        { "name": "Lead", "type": "multipleRecordLinks", "linkedTable": "Leads", "description": "Link to the scored lead" },
+        { "name": "Score", "type": "number", "description": "Assigned score" },
+        { "name": "Factors", "type": "longText", "description": "JSON array of scoring factors applied" },
+        { "name": "Timestamp", "type": "dateTime", "description": "When scoring occurred" }
+      ]
+    }
+  ]
+}

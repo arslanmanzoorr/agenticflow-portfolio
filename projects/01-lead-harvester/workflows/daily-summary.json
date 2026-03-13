@@ -1,0 +1,116 @@
+{
+  "name": "Lead Harvester - Daily Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b1b2c3d4-2222-4000-8000-000000000001",
+      "name": "Daily 6PM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/Leads?filterByFormula=IS_SAME(CREATED_TIME(), TODAY(), 'day')",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "b1b2c3d4-2222-4000-8000-000000000002",
+      "name": "Get Todays Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "airtable-auth",
+          "name": "Airtable API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const records = $input.first().json.records || [];\nconst total = records.length;\nconst qualified = records.filter(r => r.fields.Status === 'Qualified').length;\nconst unqualified = total - qualified;\nconst avgScore = total > 0 \n  ? Math.round(records.reduce((sum, r) => sum + (r.fields.Score || 0), 0) / total) \n  : 0;\n\nconst topLeads = records\n  .filter(r => r.fields.Status === 'Qualified')\n  .sort((a, b) => (b.fields.Score || 0) - (a.fields.Score || 0))\n  .slice(0, 5)\n  .map(r => `  - ${r.fields.Name} (Score: ${r.fields.Score})`)\n  .join('\\n');\n\nconst summary = `:chart_with_upwards_trend: *Daily Lead Summary - ${new Date().toLocaleDateString()}*\\n\\n` +\n  `:bust_in_silhouette: Total Leads: ${total}\\n` +\n  `:white_check_mark: Qualified: ${qualified}\\n` +\n  `:x: Unqualified: ${unqualified}\\n` +\n  `:bar_chart: Average Score: ${avgScore}\\n\\n` +\n  (topLeads ? `:star: *Top Qualified Leads:*\\n${topLeads}` : 'No qualified leads today.');\n\nreturn [{ json: { text: summary } }];"
+      },
+      "id": "b1b2c3d4-2222-4000-8000-000000000003",
+      "name": "Format Summary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}"
+      },
+      "id": "b1b2c3d4-2222-4000-8000-000000000004",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Daily 6PM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Todays Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Todays Leads": {
+      "main": [
+        [
+          {
+            "node": "Format Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Summary": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "lead-generation"
+    },
+    {
+      "name": "reporting"
+    }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}

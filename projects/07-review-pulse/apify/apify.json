@@ -1,0 +1,57 @@
+{
+  "name": "review-pulse-scraper",
+  "version": "1.0.0",
+  "buildTag": "latest",
+  "env": null,
+  "defaultRunOptions": {
+    "build": "latest",
+    "timeoutSecs": 600,
+    "memoryMbytes": 1024
+  },
+  "input": {
+    "title": "ReviewPulse Multi-Platform Review Scraper",
+    "description": "Scrapes reviews from Google Maps, Yelp, and Trustpilot for a given business.",
+    "type": "object",
+    "schemaVersion": 1,
+    "required": ["urls"],
+    "properties": {
+      "urls": {
+        "title": "Business URLs",
+        "description": "List of business profile URLs to scrape reviews from. Supports Google Maps, Yelp, and Trustpilot.",
+        "type": "array",
+        "editor": "stringList",
+        "items": {
+          "type": "string"
+        },
+        "example": [
+          "https://www.google.com/maps/place/Example+Business",
+          "https://www.yelp.com/biz/example-business",
+          "https://www.trustpilot.com/review/example.com"
+        ]
+      },
+      "maxReviews": {
+        "title": "Max Reviews Per Platform",
+        "description": "Maximum number of reviews to collect per platform URL.",
+        "type": "integer",
+        "default": 100,
+        "minimum": 1,
+        "maximum": 1000,
+        "editor": "number"
+      },
+      "businessId": {
+        "title": "Business ID",
+        "description": "Unique identifier for the business. Used for tracking and webhook payloads.",
+        "type": "string",
+        "editor": "textfield"
+      },
+      "webhookUrl": {
+        "title": "Webhook URL",
+        "description": "URL to POST scraped reviews to upon completion (e.g., your ReviewPulse API endpoint).",
+        "type": "string",
+        "editor": "textfield",
+        "nullable": true
+      }
+    }
+  },
+  "dockerfile": "./Dockerfile"
+}

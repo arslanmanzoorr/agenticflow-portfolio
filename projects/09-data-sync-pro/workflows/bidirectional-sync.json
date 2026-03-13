@@ -1,0 +1,624 @@
+{
+  "name": "Bidirectional Sync - Airtable <> Google Sheets",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch-airtable",
+      "name": "Fetch Airtable Records",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [460, 200],
+      "parameters": {
+        "operation": "list",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Master Database",
+        "options": {
+          "fields": [],
+          "filterByFormula": "OR(IS_AFTER(LAST_MODIFIED_TIME(), DATEADD(NOW(), -35, 'minutes')), CREATED_TIME() > DATEADD(NOW(), -35, 'minutes'))"
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "fetch-sheets",
+      "name": "Fetch Google Sheets Records",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [460, 420],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sync Sheet"
+        },
+        "options": {
+          "range": "A:Z",
+          "valueRenderMode": "FORMATTED_VALUE",
+          "dateTimeRenderOption": "FORMATTED_STRING"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred-1",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "normalize-airtable",
+      "name": "Normalize Airtable Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 200],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst normalized = items.map(item => {\n  const fields = item.json.fields || item.json;\n  return {\n    json: {\n      sync_id: fields['Sync ID'] || fields.sync_id || '',\n      name: fields['Name'] || fields.name || '',\n      email: fields['Email'] || fields.email || '',\n      status: fields['Status'] || fields.status || '',\n      category: fields['Category'] || fields.category || '',\n      amount: parseFloat(fields['Amount'] || fields.amount || 0),\n      last_modified: fields['Last Modified'] || fields.last_modified || new Date().toISOString(),\n      source: 'airtable',\n      airtable_record_id: item.json.id || ''\n    }\n  };\n});\nreturn normalized;"
+      }
+    },
+    {
+      "id": "normalize-sheets",
+      "name": "Normalize Sheets Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 420],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst normalized = items.map((item, index) => {\n  const row = item.json;\n  return {\n    json: {\n      sync_id: row['Sync ID'] || row['sync_id'] || '',\n      name: row['Name'] || row['name'] || '',\n      email: row['Email'] || row['email'] || '',\n      status: row['Status'] || row['status'] || '',\n      category: row['Category'] || row['category'] || '',\n      amount: parseFloat(row['Amount'] || row['amount'] || 0),\n      last_modified: row['Last Modified'] || row['last_modified'] || new Date().toISOString(),\n      source: 'google_sheets',\n      sheet_row_number: index + 2\n    }\n  };\n});\nreturn normalized;"
+      }
+    },
+    {
+      "id": "merge-records",
+      "name": "Merge & Compare Records",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [940, 300],
+      "parameters": {
+        "mode": "combineBySql",
+        "combineBySql": {
+          "query": "SELECT\n  COALESCE(a.sync_id, b.sync_id) AS sync_id,\n  a.sync_id AS airtable_id,\n  b.sync_id AS sheets_id,\n  a.name AS at_name,\n  b.name AS gs_name,\n  a.email AS at_email,\n  b.email AS gs_email,\n  a.status AS at_status,\n  b.status AS gs_status,\n  a.category AS at_category,\n  b.category AS gs_category,\n  a.amount AS at_amount,\n  b.amount AS gs_amount,\n  a.last_modified AS at_modified,\n  b.last_modified AS gs_modified,\n  a.airtable_record_id,\n  b.sheet_row_number\nFROM input1 a\nFULL OUTER JOIN input2 b ON a.sync_id = b.sync_id"
+        }
+      }
+    },
+    {
+      "id": "diff-logic",
+      "name": "Diff Logic - Classify Changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 300],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const d = item.json;\n  let action = 'none';\n  let direction = 'none';\n  let hasConflict = false;\n\n  const existsInAirtable = !!d.airtable_id;\n  const existsInSheets = !!d.sheets_id;\n\n  if (existsInAirtable && !existsInSheets) {\n    action = 'create';\n    direction = 'airtable_to_sheets';\n  } else if (!existsInAirtable && existsInSheets) {\n    action = 'create';\n    direction = 'sheets_to_airtable';\n  } else if (existsInAirtable && existsInSheets) {\n    const fieldsChanged = (\n      d.at_name !== d.gs_name ||\n      d.at_email !== d.gs_email ||\n      d.at_status !== d.gs_status ||\n      d.at_category !== d.gs_category ||\n      d.at_amount !== d.gs_amount\n    );\n\n    if (fieldsChanged) {\n      const atTime = new Date(d.at_modified).getTime();\n      const gsTime = new Date(d.gs_modified).getTime();\n      const timeDiff = Math.abs(atTime - gsTime);\n\n      if (timeDiff < 60000) {\n        hasConflict = true;\n        action = 'conflict';\n        direction = 'both';\n      } else if (atTime > gsTime) {\n        action = 'update';\n        direction = 'airtable_to_sheets';\n      } else {\n        action = 'update';\n        direction = 'sheets_to_airtable';\n      }\n    }\n  }\n\n  if (action !== 'none') {\n    results.push({\n      json: {\n        ...d,\n        sync_action: action,\n        sync_direction: direction,\n        has_conflict: hasConflict,\n        processed_at: new Date().toISOString()\n      }\n    });\n  }\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "route-actions",
+      "name": "Route by Action Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1420, 300],
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "to_sheets",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.sync_direction }}",
+                    "rightValue": "airtable_to_sheets",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "to_airtable",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.sync_direction }}",
+                    "rightValue": "sheets_to_airtable",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "conflict",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.has_conflict }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-create-or-update-sheets",
+      "name": "Create or Update? (Sheets)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1660, 140],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.sync_action }}",
+              "rightValue": "create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "create-in-sheets",
+      "name": "Create Row in Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [1900, 80],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sync Sheet"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Sync ID": "={{ $json.sync_id }}",
+            "Name": "={{ $json.at_name }}",
+            "Email": "={{ $json.at_email }}",
+            "Status": "={{ $json.at_status }}",
+            "Category": "={{ $json.at_category }}",
+            "Amount": "={{ $json.at_amount }}",
+            "Last Modified": "={{ $json.processed_at }}"
+          }
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred-1",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "update-in-sheets",
+      "name": "Update Row in Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [1900, 200],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sync Sheet"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Sync ID": "={{ $json.sync_id }}",
+            "Name": "={{ $json.at_name }}",
+            "Email": "={{ $json.at_email }}",
+            "Status": "={{ $json.at_status }}",
+            "Category": "={{ $json.at_category }}",
+            "Amount": "={{ $json.at_amount }}",
+            "Last Modified": "={{ $json.processed_at }}"
+          }
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED",
+          "handlingExtraData": "insertInNewColumn"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred-1",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "check-create-or-update-airtable",
+      "name": "Create or Update? (Airtable)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1660, 340],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.sync_action }}",
+              "rightValue": "create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "create-in-airtable",
+      "name": "Create Record in Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1900, 300],
+      "parameters": {
+        "operation": "create",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Master Database",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Sync ID": "={{ $json.sync_id }}",
+            "Name": "={{ $json.gs_name }}",
+            "Email": "={{ $json.gs_email }}",
+            "Status": "={{ $json.gs_status }}",
+            "Category": "={{ $json.gs_category }}",
+            "Amount": "={{ $json.gs_amount }}",
+            "Last Modified": "={{ $json.processed_at }}"
+          }
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "update-in-airtable",
+      "name": "Update Record in Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1900, 420],
+      "parameters": {
+        "operation": "update",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Master Database",
+        "id": "={{ $json.airtable_record_id }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $json.gs_name }}",
+            "Email": "={{ $json.gs_email }}",
+            "Status": "={{ $json.gs_status }}",
+            "Category": "={{ $json.gs_category }}",
+            "Amount": "={{ $json.gs_amount }}",
+            "Last Modified": "={{ $json.processed_at }}"
+          }
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "call-conflict-resolver",
+      "name": "Call Conflict Resolver",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1660, 520],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/conflict-resolver",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "conflict_data",
+              "value": "={{ JSON.stringify($json) }}"
+            },
+            {
+              "name": "workflow_id",
+              "value": "bidirectional-sync"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "followRedirects": true
+          }
+        }
+      }
+    },
+    {
+      "id": "aggregate-results",
+      "name": "Aggregate Sync Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2140, 300],
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\n\nconst summary = {\n  total_processed: allItems.length,\n  created_in_sheets: 0,\n  updated_in_sheets: 0,\n  created_in_airtable: 0,\n  updated_in_airtable: 0,\n  conflicts_detected: 0,\n  errors: 0,\n  sync_timestamp: new Date().toISOString()\n};\n\nfor (const item of allItems) {\n  const d = item.json;\n  if (d.sync_action === 'create' && d.sync_direction === 'airtable_to_sheets') summary.created_in_sheets++;\n  if (d.sync_action === 'update' && d.sync_direction === 'airtable_to_sheets') summary.updated_in_sheets++;\n  if (d.sync_action === 'create' && d.sync_direction === 'sheets_to_airtable') summary.created_in_airtable++;\n  if (d.sync_action === 'update' && d.sync_direction === 'sheets_to_airtable') summary.updated_in_airtable++;\n  if (d.has_conflict) summary.conflicts_detected++;\n}\n\nreturn [{ json: summary }];"
+      }
+    },
+    {
+      "id": "log-to-airtable",
+      "name": "Log Sync Results to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [2380, 240],
+      "parameters": {
+        "operation": "create",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Sync Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Sync Timestamp": "={{ $json.sync_timestamp }}",
+            "Total Processed": "={{ $json.total_processed }}",
+            "Created in Sheets": "={{ $json.created_in_sheets }}",
+            "Updated in Sheets": "={{ $json.updated_in_sheets }}",
+            "Created in Airtable": "={{ $json.created_in_airtable }}",
+            "Updated in Airtable": "={{ $json.updated_in_airtable }}",
+            "Conflicts": "={{ $json.conflicts_detected }}",
+            "Errors": "={{ $json.errors }}",
+            "Status": "Completed",
+            "Workflow": "bidirectional-sync"
+          }
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2140, 520],
+      "parameters": {
+        "jsCode": "const error = $input.first();\nconst errorDetails = {\n  workflow: 'Bidirectional Sync',\n  error_message: error.json.message || 'Unknown error',\n  error_node: error.json.node || 'Unknown',\n  timestamp: new Date().toISOString(),\n  stack_trace: error.json.stack || ''\n};\nreturn [{ json: errorDetails }];"
+      }
+    },
+    {
+      "id": "slack-error-notification",
+      "name": "Slack Error Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [2380, 520],
+      "parameters": {
+        "operation": "sendMessage",
+        "channel": "={{ $env.SLACK_ALERT_CHANNEL }}",
+        "text": ":rotating_light: *DataSync Pro - Sync Error*\n\n*Workflow:* {{ $json.workflow }}\n*Error:* {{ $json.error_message }}\n*Node:* {{ $json.error_node }}\n*Time:* {{ $json.timestamp }}\n\nPlease investigate immediately.",
+        "otherOptions": {
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "slack-cred-1",
+          "name": "Slack API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          { "node": "Fetch Airtable Records", "type": "main", "index": 0 },
+          { "node": "Fetch Google Sheets Records", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Airtable Records": {
+      "main": [
+        [
+          { "node": "Normalize Airtable Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Google Sheets Records": {
+      "main": [
+        [
+          { "node": "Normalize Sheets Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Normalize Airtable Data": {
+      "main": [
+        [
+          { "node": "Merge & Compare Records", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Normalize Sheets Data": {
+      "main": [
+        [
+          { "node": "Merge & Compare Records", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Merge & Compare Records": {
+      "main": [
+        [
+          { "node": "Diff Logic - Classify Changes", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Diff Logic - Classify Changes": {
+      "main": [
+        [
+          { "node": "Route by Action Type", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Route by Action Type": {
+      "main": [
+        [
+          { "node": "Create or Update? (Sheets)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Create or Update? (Airtable)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Call Conflict Resolver", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Create or Update? (Sheets)": {
+      "main": [
+        [
+          { "node": "Create Row in Google Sheets", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Update Row in Google Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Create or Update? (Airtable)": {
+      "main": [
+        [
+          { "node": "Create Record in Airtable", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Update Record in Airtable", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Create Row in Google Sheets": {
+      "main": [
+        [
+          { "node": "Aggregate Sync Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Update Row in Google Sheets": {
+      "main": [
+        [
+          { "node": "Aggregate Sync Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Create Record in Airtable": {
+      "main": [
+        [
+          { "node": "Aggregate Sync Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Update Record in Airtable": {
+      "main": [
+        [
+          { "node": "Aggregate Sync Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Aggregate Sync Results": {
+      "main": [
+        [
+          { "node": "Log Sync Results to Airtable", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          { "node": "Slack Error Notification", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "sync" },
+    { "name": "production" },
+    { "name": "bidirectional" }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-15T10:30:00.000Z",
+  "versionId": "1.0.0"
+}

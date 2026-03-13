@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Update on Your Application - {{company_name}}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f7; font-family: 'Segoe UI', Arial, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f7;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+          <!-- Header -->
+          <tr>
+            <td style="background-color: #374151; padding: 32px 40px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">{{company_name}}</h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 20px; color: #1F2937; font-size: 20px;">Dear {{candidate_name}},</h2>
+
+              <p style="margin: 0 0 16px; color: #4B5563; font-size: 16px; line-height: 1.6;">
+                Thank you for your interest in the <strong style="color: #1F2937;">{{job_title}}</strong> position at <strong style="color: #1F2937;">{{company_name}}</strong> and for taking the time to go through our interview process.
+              </p>
+
+              <p style="margin: 0 0 16px; color: #4B5563; font-size: 16px; line-height: 1.6;">
+                After careful consideration, we have decided to move forward with another candidate whose experience more closely aligns with our current needs for this particular role.
+              </p>
+
+              <p style="margin: 0 0 16px; color: #4B5563; font-size: 16px; line-height: 1.6;">
+                This was not an easy decision. We were genuinely impressed by your background and skills. We would like to keep your information on file and reach out if a more suitable opportunity arises in the future.
+              </p>
+
+              <p style="margin: 0 0 16px; color: #4B5563; font-size: 16px; line-height: 1.6;">
+                We encourage you to continue checking our careers page for new openings that may be a better match.
+              </p>
+
+              <p style="margin: 0 0 8px; color: #4B5563; font-size: 16px; line-height: 1.6;">
+                We wish you the very best in your career journey and future endeavors.
+              </p>
+
+              <p style="margin: 24px 0 0; color: #4B5563; font-size: 16px; line-height: 1.6;">
+                Warm regards,<br>
+                <strong style="color: #1F2937;">{{recruiter_name}}</strong><br>
+                <span style="color: #6B7280;">Talent Acquisition Team</span><br>
+                <span style="color: #6B7280;">{{company_name}}</span>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #F9FAFB; padding: 24px 40px; border-top: 1px solid #E5E7EB;">
+              <p style="margin: 0; color: #9CA3AF; font-size: 12px; line-height: 1.5; text-align: center;">
+                This is an automated message from the {{company_name}} recruitment team.
+                If you have any questions about your application, please reply to this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

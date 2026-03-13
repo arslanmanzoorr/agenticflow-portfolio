@@ -1,0 +1,32 @@
+{
+  "actorId": "compass/crawler-google-places",
+  "input": {
+    "searchStringsArray": [
+      "digital marketing agency",
+      "web development company",
+      "IT consulting firm",
+      "software development company",
+      "SEO agency"
+    ],
+    "locationQuery": "New York, USA",
+    "maxCrawledPlacesPerSearch": 50,
+    "language": "en",
+    "deeperCityScrape": false,
+    "includeWebResults": false,
+    "exportPlaceUrls": false,
+    "additionalInfo": false,
+    "scrapeDirectories": false,
+    "scrapeContacts": true,
+    "maxImages": 0,
+    "maxReviews": 0,
+    "proxyConfiguration": {
+      "useApifyProxy": true,
+      "apifyProxyGroups": ["RESIDENTIAL"]
+    }
+  },
+  "options": {
+    "build": "latest",
+    "timeoutSecs": 600,
+    "memoryMbytes": 4096
+  }
+}

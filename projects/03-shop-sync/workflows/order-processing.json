@@ -1,0 +1,446 @@
+{
+  "name": "ShopSync - Order Processing",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Shopify Order Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "parameters": {
+        "path": "shopify/orders/new",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseCode": 200,
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "shopify-order-create"
+    },
+    {
+      "id": "verify-webhook",
+      "name": "Verify Shopify HMAC",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "hmac-check",
+              "leftValue": "={{ $json.headers['x-shopify-hmac-sha256'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "extract-order-data",
+      "name": "Extract Order Details",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [680, 240],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "order-id",
+              "name": "orderId",
+              "value": "={{ $json.body.id }}",
+              "type": "string"
+            },
+            {
+              "id": "order-number",
+              "name": "orderNumber",
+              "value": "={{ $json.body.order_number }}",
+              "type": "number"
+            },
+            {
+              "id": "customer-name",
+              "name": "customerName",
+              "value": "={{ $json.body.customer.first_name }} {{ $json.body.customer.last_name }}",
+              "type": "string"
+            },
+            {
+              "id": "customer-email",
+              "name": "customerEmail",
+              "value": "={{ $json.body.customer.email }}",
+              "type": "string"
+            },
+            {
+              "id": "customer-id",
+              "name": "customerId",
+              "value": "={{ $json.body.customer.id }}",
+              "type": "string"
+            },
+            {
+              "id": "line-items",
+              "name": "lineItems",
+              "value": "={{ JSON.stringify($json.body.line_items.map(i => ({ sku: i.sku, title: i.title, quantity: i.quantity, price: i.price }))) }}",
+              "type": "string"
+            },
+            {
+              "id": "subtotal",
+              "name": "subtotal",
+              "value": "={{ parseFloat($json.body.subtotal_price) }}",
+              "type": "number"
+            },
+            {
+              "id": "tax",
+              "name": "tax",
+              "value": "={{ parseFloat($json.body.total_tax) }}",
+              "type": "number"
+            },
+            {
+              "id": "shipping-cost",
+              "name": "shippingCost",
+              "value": "={{ $json.body.shipping_lines.length > 0 ? parseFloat($json.body.shipping_lines[0].price) : 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "total",
+              "name": "total",
+              "value": "={{ parseFloat($json.body.total_price) }}",
+              "type": "number"
+            },
+            {
+              "id": "shipping-address",
+              "name": "shippingAddress",
+              "value": "={{ $json.body.shipping_address ? `${$json.body.shipping_address.address1}, ${$json.body.shipping_address.city}, ${$json.body.shipping_address.province_code} ${$json.body.shipping_address.zip}` : 'N/A' }}",
+              "type": "string"
+            },
+            {
+              "id": "order-date",
+              "name": "orderDate",
+              "value": "={{ $json.body.created_at }}",
+              "type": "string"
+            },
+            {
+              "id": "financial-status",
+              "name": "financialStatus",
+              "value": "={{ $json.body.financial_status }}",
+              "type": "string"
+            },
+            {
+              "id": "skus",
+              "name": "skus",
+              "value": "={{ $json.body.line_items.map(i => i.sku) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "create-airtable-order",
+      "name": "Create Airtable Order Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [920, 240],
+      "parameters": {
+        "operation": "create",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "={{ $env.AIRTABLE_ORDERS_TABLE_ID }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Order ID": "={{ $json.orderId }}",
+            "Shopify Order Number": "={{ $json.orderNumber }}",
+            "Customer Name": "={{ $json.customerName }}",
+            "Customer Email": "={{ $json.customerEmail }}",
+            "Order Date": "={{ $json.orderDate }}",
+            "Line Items": "={{ $json.lineItems }}",
+            "Subtotal": "={{ $json.subtotal }}",
+            "Tax": "={{ $json.tax }}",
+            "Shipping Cost": "={{ $json.shippingCost }}",
+            "Total": "={{ $json.total }}",
+            "Status": "Pending",
+            "Fulfillment Status": "Unfulfilled",
+            "Payment Status": "={{ $json.financialStatus === 'paid' ? 'Paid' : 'Pending' }}",
+            "Shipping Address": "={{ $json.shippingAddress }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-credentials",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "id": "lookup-inventory",
+      "name": "Check Inventory Levels",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [1160, 240],
+      "parameters": {
+        "operation": "search",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "={{ $env.AIRTABLE_INVENTORY_TABLE_ID }}",
+        "filterByFormula": "=OR({{ $('Extract Order Details').item.json.skus.map(s => `{SKU}='${s}'`).join(',') }})",
+        "options": {
+          "fields": ["SKU", "Product Name", "Current Stock", "Reorder Threshold", "Stock Status"]
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-credentials",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "id": "check-low-stock",
+      "name": "Low Stock Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1400, 240],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "low-stock-condition",
+              "leftValue": "={{ $json.fields['Current Stock'] }}",
+              "rightValue": "={{ $json.fields['Reorder Threshold'] }}",
+              "operator": {
+                "type": "number",
+                "operation": "smallerEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "format-low-stock-alert",
+      "name": "Format Low Stock Alert",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1640, 160],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "alert-message",
+              "name": "alertMessage",
+              "value": "=:warning: *Low Stock Alert*\n\n*Product:* {{ $json.fields['Product Name'] }}\n*SKU:* {{ $json.fields['SKU'] }}\n*Current Stock:* {{ $json.fields['Current Stock'] }} units\n*Reorder Threshold:* {{ $json.fields['Reorder Threshold'] }} units\n\nTriggered by Order #{{ $('Extract Order Details').item.json.orderNumber }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "slack-low-stock",
+      "name": "Slack Low Stock Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1880, 160],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_INVENTORY_CHANNEL_ID }}",
+        "text": "={{ $json.alertMessage }}",
+        "otherOptions": {
+          "mrkdwn": true,
+          "unfurl_links": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credentials",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "id": "format-order-summary",
+      "name": "Format Order Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1160, 460],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "slack-message",
+              "name": "slackMessage",
+              "value": "=:package: *New Order Received*\n\n*Order:* #{{ $('Extract Order Details').item.json.orderNumber }}\n*Customer:* {{ $('Extract Order Details').item.json.customerName }}\n*Email:* {{ $('Extract Order Details').item.json.customerEmail }}\n*Items:*\n{{ JSON.parse($('Extract Order Details').item.json.lineItems).map(i => `  - ${i.title} (${i.sku}) x${i.quantity} @ $${i.price}`).join('\\n') }}\n\n*Subtotal:* ${{ $('Extract Order Details').item.json.subtotal.toFixed(2) }}\n*Tax:* ${{ $('Extract Order Details').item.json.tax.toFixed(2) }}\n*Shipping:* ${{ $('Extract Order Details').item.json.shippingCost.toFixed(2) }}\n*Total:* ${{ $('Extract Order Details').item.json.total.toFixed(2) }}\n\n*Ship to:* {{ $('Extract Order Details').item.json.shippingAddress }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "slack-order-confirmation",
+      "name": "Slack Order Confirmation",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1400, 460],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_ORDERS_CHANNEL_ID }}",
+        "text": "={{ $json.slackMessage }}",
+        "otherOptions": {
+          "mrkdwn": true,
+          "unfurl_links": false
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credentials",
+          "name": "Slack Bot Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Shopify Order Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify Shopify HMAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Shopify HMAC": {
+      "main": [
+        [
+          {
+            "node": "Extract Order Details",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extract Order Details": {
+      "main": [
+        [
+          {
+            "node": "Create Airtable Order Record",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Order Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Airtable Order Record": {
+      "main": [
+        [
+          {
+            "node": "Check Inventory Levels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Inventory Levels": {
+      "main": [
+        [
+          {
+            "node": "Low Stock Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low Stock Check": {
+      "main": [
+        [
+          {
+            "node": "Format Low Stock Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Format Low Stock Alert": {
+      "main": [
+        [
+          {
+            "node": "Slack Low Stock Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Order Summary": {
+      "main": [
+        [
+          {
+            "node": "Slack Order Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "ShopSync",
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z"
+    },
+    {
+      "name": "Orders",
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

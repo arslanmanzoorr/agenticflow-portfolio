@@ -1,0 +1,332 @@
+{
+  "name": "Lead Harvester - Main Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000001",
+      "name": "Daily 9AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/compass~crawler-google-places/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"searchStringsArray\": [\"digital marketing agency\", \"web development company\", \"IT consulting firm\"], \"locationQuery\": \"New York, USA\", \"maxCrawledPlacesPerSearch\": 50 }) }}"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000002",
+      "name": "Start Apify Actor Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify-auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000003",
+      "name": "Wait for Actor",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/acts/compass~crawler-google-places/runs/{{ $node['Start Apify Actor Run'].json.data.id }}/dataset/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000004",
+      "name": "Fetch Apify Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify-auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const results = items.map(item => {\n  return {\n    json: {\n      name: item.json.title || '',\n      email: (item.json.emails && item.json.emails[0]) || '',\n      phone: item.json.phone || '',\n      website: item.json.website || '',\n      address: item.json.address || '',\n      category: item.json.categoryName || '',\n      rating: item.json.totalScore || 0,\n      reviewCount: item.json.reviewsCount || 0,\n      source: 'google_maps',\n      scraped_at: new Date().toISOString()\n    }\n  };\n});\n\nreturn results;"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000005",
+      "name": "Clean & Transform Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://company.clearbit.com/v2/companies/find?domain={{ $json.website ? $json.website.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0] : '' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000006",
+      "name": "Clearbit Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "clearbit-auth",
+          "name": "Clearbit API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const lead = $input.first().json;\nlet score = 0;\nconst factors = [];\n\n// Email presence\nif (lead.email) {\n  score += 20;\n  factors.push('has_email: +20');\n}\n\n// Website presence\nif (lead.website) {\n  score += 15;\n  factors.push('has_website: +15');\n}\n\n// Phone presence\nif (lead.phone) {\n  score += 10;\n  factors.push('has_phone: +10');\n}\n\n// Company size from Clearbit\nconst employees = lead.metrics?.employees || 0;\nif (employees > 200) {\n  score += 30;\n  factors.push('large_company: +30');\n} else if (employees > 50) {\n  score += 20;\n  factors.push('medium_company: +20');\n} else if (employees > 10) {\n  score += 10;\n  factors.push('small_company: +10');\n}\n\n// Industry match\nconst targetIndustries = ['technology', 'marketing', 'consulting', 'software'];\nconst industry = (lead.category || lead.industry || '').toLowerCase();\nif (targetIndustries.some(t => industry.includes(t))) {\n  score += 20;\n  factors.push('industry_match: +20');\n}\n\n// Rating bonus\nif (lead.rating >= 4.0) {\n  score += 10;\n  factors.push('high_rating: +10');\n}\n\nreturn [{\n  json: {\n    ...lead,\n    score,\n    scoring_factors: factors,\n    qualified: score >= 70,\n    scored_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000007",
+      "name": "Lead Scoring",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.qualified }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000008",
+      "name": "Is Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"properties\": { \"firstname\": $json.name.split(' ')[0] || '', \"lastname\": $json.name.split(' ').slice(1).join(' ') || '', \"email\": $json.email, \"phone\": $json.phone, \"website\": $json.website, \"company\": $json.name, \"lead_score\": $json.score } }) }}"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000009",
+      "name": "Create HubSpot Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2020, 180],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "hubspot-auth",
+          "name": "HubSpot API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/Leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"records\": [{ \"fields\": { \"Name\": $json.name, \"Email\": $json.email, \"Phone\": $json.phone, \"Company\": $json.name, \"Website\": $json.website, \"Source\": $json.source, \"Score\": $json.score, \"Status\": $json.qualified ? 'Qualified' : 'Unqualified', \"Created At\": $json.scored_at } }] }) }}"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000010",
+      "name": "Log to Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2020, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "airtable-auth",
+          "name": "Airtable API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"text\": \":mag: *Lead Harvester Daily Run Complete*\\n\\n:white_check_mark: Total leads scraped: \" + $node['Clean & Transform Data'].json.length + \"\\n:star: Qualified leads: \" + ($json.qualified ? 1 : 0) + \"\\n:clock1: Run completed at: \" + new Date().toISOString() }) }}"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000011",
+      "name": "Slack Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2260, 420]
+    }
+  ],
+  "connections": {
+    "Daily 9AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Start Apify Actor Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Apify Actor Run": {
+      "main": [
+        [
+          {
+            "node": "Wait for Actor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Actor": {
+      "main": [
+        [
+          {
+            "node": "Fetch Apify Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Apify Results": {
+      "main": [
+        [
+          {
+            "node": "Clean & Transform Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean & Transform Data": {
+      "main": [
+        [
+          {
+            "node": "Clearbit Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clearbit Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Lead Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Scoring": {
+      "main": [
+        [
+          {
+            "node": "Is Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Create HubSpot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log to Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create HubSpot Contact": {
+      "main": [
+        [
+          {
+            "node": "Log to Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Airtable": {
+      "main": [
+        [
+          {
+            "node": "Slack Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "lead-generation"
+    },
+    {
+      "name": "automation"
+    }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}

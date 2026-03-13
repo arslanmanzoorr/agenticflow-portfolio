@@ -1,0 +1,127 @@
+{
+  "name": "hireflow-linkedin-scraper",
+  "version": "1.0.0",
+  "buildTag": "latest",
+  "env": null,
+  "defaultRunOptions": {
+    "build": "latest",
+    "timeoutSecs": 300,
+    "memoryMbytes": 1024
+  },
+  "input": {
+    "title": "HireFlow LinkedIn Candidate Scraper",
+    "description": "Scrapes candidate profiles from LinkedIn based on job title, skills, and location filters. Returns structured candidate data for the HireFlow recruitment pipeline.",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+      "jobTitles": {
+        "title": "Job Titles",
+        "description": "List of job titles to search for (e.g., 'Software Engineer', 'Product Manager'). Matches against candidate headlines and experience.",
+        "type": "array",
+        "editor": "stringList",
+        "items": {
+          "type": "string"
+        },
+        "default": ["Software Engineer"],
+        "prefill": ["Software Engineer"]
+      },
+      "locations": {
+        "title": "Locations",
+        "description": "Target locations to filter candidates by (e.g., 'San Francisco', 'New York'). Leave empty to search all locations.",
+        "type": "array",
+        "editor": "stringList",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "prefill": ["San Francisco, CA"]
+      },
+      "requiredSkills": {
+        "title": "Required Skills",
+        "description": "Skills the ideal candidate should have. Used for filtering and match scoring.",
+        "type": "array",
+        "editor": "stringList",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "prefill": ["Python", "AWS", "Docker"]
+      },
+      "minExperience": {
+        "title": "Minimum Years of Experience",
+        "description": "Minimum years of professional experience required.",
+        "type": "integer",
+        "editor": "number",
+        "minimum": 0,
+        "maximum": 30,
+        "default": 0
+      },
+      "maxExperience": {
+        "title": "Maximum Years of Experience",
+        "description": "Maximum years of professional experience. Set to 99 for no upper limit.",
+        "type": "integer",
+        "editor": "number",
+        "minimum": 0,
+        "maximum": 99,
+        "default": 99
+      },
+      "minSkillMatch": {
+        "title": "Minimum Skill Matches",
+        "description": "Minimum number of required skills a candidate must have to be included in results.",
+        "type": "integer",
+        "editor": "number",
+        "minimum": 0,
+        "maximum": 20,
+        "default": 1
+      },
+      "maxResults": {
+        "title": "Maximum Results",
+        "description": "Maximum number of candidate profiles to return.",
+        "type": "integer",
+        "editor": "number",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 50
+      }
+    },
+    "required": ["jobTitles"]
+  },
+  "storages": {
+    "dataset": {
+      "actorSpecification": 1,
+      "title": "Candidate Profiles",
+      "description": "Scraped and enriched candidate profile data",
+      "views": {
+        "candidates": {
+          "title": "Candidates",
+          "transformation": {
+            "fields": [
+              "candidate_id",
+              "name",
+              "headline",
+              "current_company",
+              "location",
+              "experience_years",
+              "skill_match_score",
+              "matched_skills",
+              "profile_url"
+            ]
+          },
+          "display": {
+            "component": "table",
+            "properties": {
+              "candidate_id": { "label": "ID", "format": "text" },
+              "name": { "label": "Name", "format": "text" },
+              "headline": { "label": "Headline", "format": "text" },
+              "current_company": { "label": "Company", "format": "text" },
+              "location": { "label": "Location", "format": "text" },
+              "experience_years": { "label": "Exp (yrs)", "format": "number" },
+              "skill_match_score": { "label": "Skill Match", "format": "number" },
+              "profile_url": { "label": "Profile", "format": "link" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,514 @@
+{
+  "base": {
+    "name": "ShopSync Operations",
+    "description": "Operational database for Shopify order processing, inventory management, and returns handling."
+  },
+  "tables": [
+    {
+      "name": "Orders",
+      "description": "All Shopify orders with processing status and fulfillment tracking.",
+      "fields": [
+        {
+          "name": "Order ID",
+          "type": "singleLineText",
+          "description": "Shopify order ID (e.g., #1001)"
+        },
+        {
+          "name": "Shopify Order Number",
+          "type": "number",
+          "description": "Numeric Shopify order number"
+        },
+        {
+          "name": "Customer Name",
+          "type": "singleLineText",
+          "description": "Full name from Shopify order"
+        },
+        {
+          "name": "Customer Email",
+          "type": "email",
+          "description": "Customer email address"
+        },
+        {
+          "name": "Customer",
+          "type": "multipleRecordLinks",
+          "linkedTableName": "Customers",
+          "description": "Link to customer record"
+        },
+        {
+          "name": "Order Date",
+          "type": "dateTime",
+          "options": {
+            "dateFormat": "YYYY-MM-DD",
+            "timeFormat": "HH:mm",
+            "timeZone": "America/New_York"
+          }
+        },
+        {
+          "name": "Line Items",
+          "type": "multilineText",
+          "description": "JSON string of ordered items with SKU, quantity, and price"
+        },
+        {
+          "name": "Subtotal",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 }
+        },
+        {
+          "name": "Tax",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 }
+        },
+        {
+          "name": "Shipping Cost",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 }
+        },
+        {
+          "name": "Total",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 }
+        },
+        {
+          "name": "Status",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "Pending", "color": "yellowLight2" },
+              { "name": "Processing", "color": "orangeLight2" },
+              { "name": "Fulfilled", "color": "blueLight2" },
+              { "name": "Delivered", "color": "greenLight2" },
+              { "name": "Cancelled", "color": "redLight2" },
+              { "name": "Return Requested", "color": "purpleLight2" },
+              { "name": "Returned", "color": "grayLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Fulfillment Status",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "Unfulfilled", "color": "yellowLight2" },
+              { "name": "Partially Fulfilled", "color": "orangeLight2" },
+              { "name": "Fulfilled", "color": "greenLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Payment Status",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "Pending", "color": "yellowLight2" },
+              { "name": "Paid", "color": "greenLight2" },
+              { "name": "Refunded", "color": "redLight2" },
+              { "name": "Partially Refunded", "color": "orangeLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Shipping Address",
+          "type": "multilineText",
+          "description": "Full shipping address"
+        },
+        {
+          "name": "Tracking Number",
+          "type": "singleLineText"
+        },
+        {
+          "name": "Notes",
+          "type": "multilineText"
+        },
+        {
+          "name": "Returns",
+          "type": "multipleRecordLinks",
+          "linkedTableName": "Returns",
+          "description": "Linked return requests for this order"
+        },
+        {
+          "name": "Created At",
+          "type": "createdTime"
+        },
+        {
+          "name": "Last Modified",
+          "type": "lastModifiedTime"
+        }
+      ],
+      "views": [
+        {
+          "name": "All Orders",
+          "type": "grid",
+          "sort": [{ "field": "Order Date", "direction": "desc" }]
+        },
+        {
+          "name": "Pending Orders",
+          "type": "grid",
+          "filter": { "field": "Status", "operator": "is", "value": "Pending" }
+        },
+        {
+          "name": "Returns in Progress",
+          "type": "grid",
+          "filter": { "field": "Status", "operator": "is", "value": "Return Requested" }
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "description": "Product inventory levels synced with Shopify, with reorder thresholds and alerts.",
+      "fields": [
+        {
+          "name": "SKU",
+          "type": "singleLineText",
+          "description": "Product SKU from Shopify"
+        },
+        {
+          "name": "Product Name",
+          "type": "singleLineText"
+        },
+        {
+          "name": "Shopify Product ID",
+          "type": "singleLineText",
+          "description": "Shopify product ID for API lookups"
+        },
+        {
+          "name": "Shopify Variant ID",
+          "type": "singleLineText",
+          "description": "Shopify variant ID"
+        },
+        {
+          "name": "Current Stock",
+          "type": "number",
+          "options": { "precision": 0 }
+        },
+        {
+          "name": "Reserved Stock",
+          "type": "number",
+          "options": { "precision": 0 },
+          "description": "Units reserved by pending orders"
+        },
+        {
+          "name": "Available Stock",
+          "type": "formula",
+          "options": { "formula": "{Current Stock} - {Reserved Stock}" }
+        },
+        {
+          "name": "Reorder Threshold",
+          "type": "number",
+          "options": { "precision": 0 },
+          "description": "Low stock alert triggers below this level"
+        },
+        {
+          "name": "Reorder Quantity",
+          "type": "number",
+          "options": { "precision": 0 },
+          "description": "Suggested quantity for reorder"
+        },
+        {
+          "name": "Unit Cost",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 }
+        },
+        {
+          "name": "Retail Price",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 }
+        },
+        {
+          "name": "Category",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "Apparel", "color": "blueLight2" },
+              { "name": "Accessories", "color": "greenLight2" },
+              { "name": "Electronics", "color": "purpleLight2" },
+              { "name": "Home & Garden", "color": "yellowLight2" },
+              { "name": "Other", "color": "grayLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Stock Status",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "In Stock", "color": "greenLight2" },
+              { "name": "Low Stock", "color": "yellowLight2" },
+              { "name": "Critical", "color": "orangeLight2" },
+              { "name": "Out of Stock", "color": "redLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Last Synced",
+          "type": "dateTime",
+          "description": "Timestamp of last Shopify sync"
+        },
+        {
+          "name": "Supplier",
+          "type": "singleLineText"
+        },
+        {
+          "name": "Location",
+          "type": "singleLineText",
+          "description": "Warehouse or fulfillment location"
+        },
+        {
+          "name": "Last Modified",
+          "type": "lastModifiedTime"
+        }
+      ],
+      "views": [
+        {
+          "name": "All Products",
+          "type": "grid",
+          "sort": [{ "field": "Product Name", "direction": "asc" }]
+        },
+        {
+          "name": "Low Stock Alert",
+          "type": "grid",
+          "filter": { "field": "Stock Status", "operator": "isAnyOf", "value": ["Low Stock", "Critical", "Out of Stock"] },
+          "sort": [{ "field": "Current Stock", "direction": "asc" }]
+        },
+        {
+          "name": "By Category",
+          "type": "grid",
+          "group": [{ "field": "Category", "direction": "asc" }]
+        }
+      ]
+    },
+    {
+      "name": "Returns",
+      "description": "Return requests with eligibility status, return labels, and resolution tracking.",
+      "fields": [
+        {
+          "name": "Return ID",
+          "type": "autoNumber",
+          "description": "Auto-generated return request number"
+        },
+        {
+          "name": "Order",
+          "type": "multipleRecordLinks",
+          "linkedTableName": "Orders",
+          "description": "Link to original order"
+        },
+        {
+          "name": "Order ID",
+          "type": "singleLineText",
+          "description": "Shopify order ID reference"
+        },
+        {
+          "name": "Customer Name",
+          "type": "singleLineText"
+        },
+        {
+          "name": "Customer Email",
+          "type": "email"
+        },
+        {
+          "name": "Customer",
+          "type": "multipleRecordLinks",
+          "linkedTableName": "Customers"
+        },
+        {
+          "name": "Return Items",
+          "type": "multilineText",
+          "description": "JSON array of items being returned with SKU, quantity, and reason"
+        },
+        {
+          "name": "Return Reason",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "Defective", "color": "redLight2" },
+              { "name": "Wrong Item", "color": "orangeLight2" },
+              { "name": "Not as Described", "color": "yellowLight2" },
+              { "name": "Changed Mind", "color": "blueLight2" },
+              { "name": "Too Small", "color": "purpleLight2" },
+              { "name": "Too Large", "color": "purpleLight2" },
+              { "name": "Other", "color": "grayLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Item Condition",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "Unopened", "color": "greenLight2" },
+              { "name": "Like New", "color": "blueLight2" },
+              { "name": "Used - Good", "color": "yellowLight2" },
+              { "name": "Used - Fair", "color": "orangeLight2" },
+              { "name": "Damaged", "color": "redLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Status",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "name": "Requested", "color": "yellowLight2" },
+              { "name": "Approved", "color": "greenLight2" },
+              { "name": "Denied", "color": "redLight2" },
+              { "name": "Label Sent", "color": "blueLight2" },
+              { "name": "In Transit", "color": "orangeLight2" },
+              { "name": "Received", "color": "purpleLight2" },
+              { "name": "Refunded", "color": "greenLight2" },
+              { "name": "Closed", "color": "grayLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Eligible",
+          "type": "checkbox",
+          "description": "Whether the return meets policy requirements"
+        },
+        {
+          "name": "Eligibility Notes",
+          "type": "multilineText",
+          "description": "Reason for approval or denial"
+        },
+        {
+          "name": "Refund Amount",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 }
+        },
+        {
+          "name": "Return Label URL",
+          "type": "url",
+          "description": "Prepaid return shipping label"
+        },
+        {
+          "name": "Tracking Number",
+          "type": "singleLineText"
+        },
+        {
+          "name": "Request Date",
+          "type": "dateTime"
+        },
+        {
+          "name": "Resolution Date",
+          "type": "dateTime"
+        },
+        {
+          "name": "Created At",
+          "type": "createdTime"
+        },
+        {
+          "name": "Last Modified",
+          "type": "lastModifiedTime"
+        }
+      ],
+      "views": [
+        {
+          "name": "All Returns",
+          "type": "grid",
+          "sort": [{ "field": "Created At", "direction": "desc" }]
+        },
+        {
+          "name": "Pending Review",
+          "type": "grid",
+          "filter": { "field": "Status", "operator": "is", "value": "Requested" }
+        },
+        {
+          "name": "Approved - Awaiting Return",
+          "type": "grid",
+          "filter": { "field": "Status", "operator": "isAnyOf", "value": ["Approved", "Label Sent", "In Transit"] }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "description": "Customer profiles aggregated from Shopify orders.",
+      "fields": [
+        {
+          "name": "Shopify Customer ID",
+          "type": "singleLineText"
+        },
+        {
+          "name": "Full Name",
+          "type": "singleLineText"
+        },
+        {
+          "name": "Email",
+          "type": "email"
+        },
+        {
+          "name": "Phone",
+          "type": "phoneNumber"
+        },
+        {
+          "name": "Default Address",
+          "type": "multilineText"
+        },
+        {
+          "name": "Total Orders",
+          "type": "count",
+          "options": { "recordLinkFieldName": "Orders" },
+          "description": "Count of linked order records"
+        },
+        {
+          "name": "Orders",
+          "type": "multipleRecordLinks",
+          "linkedTableName": "Orders"
+        },
+        {
+          "name": "Returns",
+          "type": "multipleRecordLinks",
+          "linkedTableName": "Returns"
+        },
+        {
+          "name": "Total Spent",
+          "type": "currency",
+          "options": { "currencySymbol": "$", "precision": 2 },
+          "description": "Lifetime spend across all orders"
+        },
+        {
+          "name": "Customer Since",
+          "type": "dateTime"
+        },
+        {
+          "name": "Tags",
+          "type": "multipleSelects",
+          "options": {
+            "choices": [
+              { "name": "VIP", "color": "purpleLight2" },
+              { "name": "Repeat Buyer", "color": "greenLight2" },
+              { "name": "High Return Rate", "color": "redLight2" },
+              { "name": "Wholesale", "color": "blueLight2" }
+            ]
+          }
+        },
+        {
+          "name": "Notes",
+          "type": "multilineText"
+        },
+        {
+          "name": "Created At",
+          "type": "createdTime"
+        },
+        {
+          "name": "Last Modified",
+          "type": "lastModifiedTime"
+        }
+      ],
+      "views": [
+        {
+          "name": "All Customers",
+          "type": "grid",
+          "sort": [{ "field": "Full Name", "direction": "asc" }]
+        },
+        {
+          "name": "VIP Customers",
+          "type": "grid",
+          "filter": { "field": "Tags", "operator": "contains", "value": "VIP" }
+        },
+        {
+          "name": "By Total Spent",
+          "type": "grid",
+          "sort": [{ "field": "Total Spent", "direction": "desc" }]
+        }
+      ]
+    }
+  ]
+}

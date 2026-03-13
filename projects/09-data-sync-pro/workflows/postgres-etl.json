@@ -1,0 +1,381 @@
+{
+  "name": "PostgreSQL ETL Pipeline",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Daily Midnight Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "set-date-range",
+      "name": "Set Date Range Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [440, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "start-date",
+              "name": "start_date",
+              "value": "={{ DateTime.now().minus({ days: 1 }).toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "end-date",
+              "name": "end_date",
+              "value": "={{ DateTime.now().toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "run-id",
+              "name": "etl_run_id",
+              "value": "={{ 'ETL-' + DateTime.now().toFormat('yyyyMMdd-HHmmss') }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "query-new-records",
+      "name": "Query New PostgreSQL Records",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [680, 200],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  id,\n  customer_name,\n  customer_email,\n  product_category,\n  order_status,\n  order_amount,\n  order_date,\n  created_at,\n  updated_at\nFROM orders\nWHERE created_at >= $1::timestamp\n  AND created_at < $2::timestamp\nORDER BY created_at ASC",
+        "options": {
+          "queryParams": "={{ $json.start_date }},{{ $json.end_date }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "postgres-cred-1",
+          "name": "PostgreSQL Production"
+        }
+      }
+    },
+    {
+      "id": "query-updated-records",
+      "name": "Query Updated PostgreSQL Records",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [680, 420],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  id,\n  customer_name,\n  customer_email,\n  product_category,\n  order_status,\n  order_amount,\n  order_date,\n  created_at,\n  updated_at\nFROM orders\nWHERE updated_at >= $1::timestamp\n  AND updated_at < $2::timestamp\n  AND created_at < $1::timestamp\nORDER BY updated_at ASC",
+        "options": {
+          "queryParams": "={{ $json.start_date }},{{ $json.end_date }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "postgres-cred-1",
+          "name": "PostgreSQL Production"
+        }
+      }
+    },
+    {
+      "id": "merge-pg-results",
+      "name": "Merge New & Updated Records",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [920, 300],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "transform-data",
+      "name": "Transform & Enrich Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst transformed = items.map(item => {\n  const d = item.json;\n\n  // Rename fields for Airtable compatibility\n  const record = {\n    'Sync ID': `PG-${d.id}`,\n    'Name': d.customer_name ? d.customer_name.trim().replace(/\\s+/g, ' ') : '',\n    'Email': d.customer_email ? d.customer_email.toLowerCase().trim() : '',\n    'Category': mapCategory(d.product_category),\n    'Status': mapStatus(d.order_status),\n    'Amount': Math.round(parseFloat(d.order_amount) * 100) / 100,\n    'Order Date': formatDate(d.order_date),\n    'Source': 'PostgreSQL',\n    'Last Modified': new Date().toISOString(),\n    'ETL Run ID': $('Set Date Range Parameters').first().json.etl_run_id,\n    'pg_id': d.id,\n    'is_new': new Date(d.created_at) >= new Date($('Set Date Range Parameters').first().json.start_date)\n  };\n\n  return { json: record };\n});\n\nfunction mapCategory(pgCategory) {\n  const mapping = {\n    'electronics': 'Electronics & Tech',\n    'clothing': 'Apparel & Fashion',\n    'food': 'Food & Beverage',\n    'home': 'Home & Garden',\n    'sports': 'Sports & Outdoors',\n    'books': 'Books & Media'\n  };\n  return mapping[pgCategory?.toLowerCase()] || pgCategory || 'Uncategorized';\n}\n\nfunction mapStatus(pgStatus) {\n  const mapping = {\n    'pending': 'Pending',\n    'processing': 'In Progress',\n    'shipped': 'Shipped',\n    'delivered': 'Completed',\n    'cancelled': 'Cancelled',\n    'refunded': 'Refunded'\n  };\n  return mapping[pgStatus?.toLowerCase()] || pgStatus || 'Unknown';\n}\n\nfunction formatDate(dateStr) {\n  if (!dateStr) return '';\n  const d = new Date(dateStr);\n  return d.toISOString().split('T')[0];\n}\n\nreturn transformed;"
+      }
+    },
+    {
+      "id": "calculate-aggregates",
+      "name": "Calculate Daily Aggregates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 520],
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst aggregates = {\n  total_records: items.length,\n  new_records: items.filter(i => i.json.is_new).length,\n  updated_records: items.filter(i => !i.json.is_new).length,\n  total_revenue: 0,\n  avg_order_value: 0,\n  by_category: {},\n  by_status: {},\n  date: $('Set Date Range Parameters').first().json.start_date,\n  etl_run_id: $('Set Date Range Parameters').first().json.etl_run_id\n};\n\nfor (const item of items) {\n  const d = item.json;\n  aggregates.total_revenue += d.Amount || 0;\n\n  if (!aggregates.by_category[d.Category]) {\n    aggregates.by_category[d.Category] = { count: 0, revenue: 0 };\n  }\n  aggregates.by_category[d.Category].count++;\n  aggregates.by_category[d.Category].revenue += d.Amount || 0;\n\n  if (!aggregates.by_status[d.Status]) {\n    aggregates.by_status[d.Status] = 0;\n  }\n  aggregates.by_status[d.Status]++;\n}\n\naggregates.avg_order_value = aggregates.total_records > 0\n  ? Math.round((aggregates.total_revenue / aggregates.total_records) * 100) / 100\n  : 0;\naggregates.total_revenue = Math.round(aggregates.total_revenue * 100) / 100;\n\nreturn [{ json: aggregates }];"
+      }
+    },
+    {
+      "id": "upsert-airtable",
+      "name": "Upsert Records to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1380, 300],
+      "parameters": {
+        "operation": "upsert",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Master Database",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": ["Sync ID"]
+        },
+        "options": {
+          "bulkSize": 10,
+          "typecast": true
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "update-summary-dashboard",
+      "name": "Update Google Sheets Summary",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [1380, 520],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ETL Summary Dashboard"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.date }}",
+            "ETL Run ID": "={{ $json.etl_run_id }}",
+            "Total Records": "={{ $json.total_records }}",
+            "New Records": "={{ $json.new_records }}",
+            "Updated Records": "={{ $json.updated_records }}",
+            "Total Revenue": "={{ $json.total_revenue }}",
+            "Avg Order Value": "={{ $json.avg_order_value }}",
+            "Categories Breakdown": "={{ JSON.stringify($json.by_category) }}",
+            "Status Breakdown": "={{ JSON.stringify($json.by_status) }}",
+            "Run Timestamp": "={{ DateTime.now().toISO() }}"
+          }
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred-1",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "prepare-email-report",
+      "name": "Prepare Completion Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1620, 400],
+      "parameters": {
+        "jsCode": "const aggregates = $('Calculate Daily Aggregates').first().json;\nconst upsertResult = $('Upsert Records to Airtable').all();\n\nconst categoryRows = Object.entries(aggregates.by_category)\n  .map(([cat, data]) => `  - ${cat}: ${data.count} orders ($${data.revenue.toFixed(2)})`)\n  .join('\\n');\n\nconst statusRows = Object.entries(aggregates.by_status)\n  .map(([status, count]) => `  - ${status}: ${count}`)\n  .join('\\n');\n\nconst report = {\n  subject: `DataSync Pro ETL Report - ${aggregates.date}`,\n  html: `\n<h2>DataSync Pro - Daily ETL Report</h2>\n<p><strong>Run ID:</strong> ${aggregates.etl_run_id}</p>\n<p><strong>Date:</strong> ${aggregates.date}</p>\n\n<h3>Summary</h3>\n<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\">\n  <tr><td>Total Records Processed</td><td><strong>${aggregates.total_records}</strong></td></tr>\n  <tr><td>New Records</td><td>${aggregates.new_records}</td></tr>\n  <tr><td>Updated Records</td><td>${aggregates.updated_records}</td></tr>\n  <tr><td>Total Revenue</td><td>$${aggregates.total_revenue.toFixed(2)}</td></tr>\n  <tr><td>Average Order Value</td><td>$${aggregates.avg_order_value.toFixed(2)}</td></tr>\n</table>\n\n<h3>By Category</h3>\n<pre>${categoryRows}</pre>\n\n<h3>By Status</h3>\n<pre>${statusRows}</pre>\n\n<p><em>This is an automated report from DataSync Pro ETL Pipeline.</em></p>\n  `\n};\n\nreturn [{ json: report }];"
+      }
+    },
+    {
+      "id": "send-email-report",
+      "name": "Send Completion Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1860, 400],
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM_EMAIL }}",
+        "toEmail": "={{ $env.REPORT_RECIPIENTS }}",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "smtp-cred-1",
+          "name": "SMTP Email"
+        }
+      }
+    },
+    {
+      "id": "log-etl-run",
+      "name": "Log ETL Run to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1860, 560],
+      "parameters": {
+        "operation": "create",
+        "application": "={{ $env.AIRTABLE_BASE_ID }}",
+        "table": "Sync Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Sync Timestamp": "={{ DateTime.now().toISO() }}",
+            "Total Processed": "={{ $('Calculate Daily Aggregates').first().json.total_records }}",
+            "Status": "Completed",
+            "Workflow": "postgres-etl",
+            "Details": "={{ 'New: ' + $('Calculate Daily Aggregates').first().json.new_records + ', Updated: ' + $('Calculate Daily Aggregates').first().json.updated_records + ', Revenue: $' + $('Calculate Daily Aggregates').first().json.total_revenue }}"
+          }
+        }
+      },
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "id": "error-handler",
+      "name": "ETL Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1620, 680],
+      "parameters": {
+        "jsCode": "const error = $input.first();\nreturn [{\n  json: {\n    workflow: 'PostgreSQL ETL Pipeline',\n    error_message: error.json.message || 'ETL pipeline failed',\n    error_node: error.json.node || 'Unknown',\n    timestamp: new Date().toISOString(),\n    etl_run_id: $('Set Date Range Parameters').first().json.etl_run_id || 'unknown'\n  }\n}];"
+      }
+    },
+    {
+      "id": "slack-etl-error",
+      "name": "Slack ETL Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1860, 680],
+      "parameters": {
+        "operation": "sendMessage",
+        "channel": "={{ $env.SLACK_ALERT_CHANNEL }}",
+        "text": ":warning: *DataSync Pro - ETL Pipeline Error*\n\n*Run ID:* {{ $json.etl_run_id }}\n*Error:* {{ $json.error_message }}\n*Node:* {{ $json.error_node }}\n*Time:* {{ $json.timestamp }}\n\nThe daily ETL pipeline has failed. Please check logs.",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "slack-cred-1",
+          "name": "Slack API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Midnight Trigger": {
+      "main": [
+        [
+          { "node": "Set Date Range Parameters", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Set Date Range Parameters": {
+      "main": [
+        [
+          { "node": "Query New PostgreSQL Records", "type": "main", "index": 0 },
+          { "node": "Query Updated PostgreSQL Records", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Query New PostgreSQL Records": {
+      "main": [
+        [
+          { "node": "Merge New & Updated Records", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Query Updated PostgreSQL Records": {
+      "main": [
+        [
+          { "node": "Merge New & Updated Records", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Merge New & Updated Records": {
+      "main": [
+        [
+          { "node": "Transform & Enrich Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Transform & Enrich Data": {
+      "main": [
+        [
+          { "node": "Upsert Records to Airtable", "type": "main", "index": 0 },
+          { "node": "Calculate Daily Aggregates", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Calculate Daily Aggregates": {
+      "main": [
+        [
+          { "node": "Update Google Sheets Summary", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Upsert Records to Airtable": {
+      "main": [
+        [
+          { "node": "Prepare Completion Report", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Update Google Sheets Summary": {
+      "main": [
+        [
+          { "node": "Prepare Completion Report", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Prepare Completion Report": {
+      "main": [
+        [
+          { "node": "Send Completion Email", "type": "main", "index": 0 },
+          { "node": "Log ETL Run to Airtable", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "ETL Error Handler": {
+      "main": [
+        [
+          { "node": "Slack ETL Error Alert", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "etl" },
+    { "name": "production" },
+    { "name": "postgresql" }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-15T10:30:00.000Z",
+  "versionId": "1.0.0"
+}

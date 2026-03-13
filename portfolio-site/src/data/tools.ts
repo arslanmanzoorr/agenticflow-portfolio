@@ -1,0 +1,21 @@
+import { Tool } from "@/types";
+
+export const tools: Tool[] = [
+  { name: "n8n", category: "Automation" },
+  { name: "Python", category: "Programming" },
+  { name: "Make.com", category: "Automation" },
+  { name: "Zapier", category: "Automation" },
+  { name: "Airtable", category: "Database" },
+  { name: "Apify", category: "Automation" },
+  { name: "HubSpot", category: "CRM" },
+  { name: "OpenAI", category: "AI" },
+  { name: "FastAPI", category: "Programming" },
+  { name: "Shopify", category: "CRM" },
+  { name: "Slack", category: "Communication" },
+  { name: "PostgreSQL", category: "Database" },
+  { name: "Google Sheets", category: "Database" },
+  { name: "Docker", category: "Infrastructure" },
+  { name: "Webhooks", category: "Infrastructure" },
+  { name: "Gmail API", category: "Communication" },
+  { name: "Calendly", category: "Communication" },
+];

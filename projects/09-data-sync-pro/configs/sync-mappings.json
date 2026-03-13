@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "description": "Field mapping configuration for DataSync Pro",
+  "mappings": [
+    {
+      "name": "contacts-sync",
+      "source": { "type": "airtable", "table": "Contacts" },
+      "destination": { "type": "google_sheets", "sheet": "Contacts", "range": "A:Z" },
+      "fields": [
+        { "source": "Name", "destination": "Full Name", "transform": "none" },
+        { "source": "Email", "destination": "Email Address", "transform": "lowercase" },
+        { "source": "Phone", "destination": "Phone Number", "transform": "none" },
+        { "source": "Company", "destination": "Company Name", "transform": "none" },
+        { "source": "Created", "destination": "Date Added", "transform": "date_format", "format": "YYYY-MM-DD" },
+        { "source": "Status", "destination": "Status", "transform": "map", "map": { "Active": "active", "Inactive": "inactive", "Lead": "prospect" } },
+        { "source": "Tags", "destination": "Categories", "transform": "join", "delimiter": ", " }
+      ],
+      "sync_direction": "bidirectional",
+      "conflict_resolution": "latest_wins",
+      "sync_key": "Email"
+    },
+    {
+      "name": "orders-etl",
+      "source": { "type": "postgres", "table": "orders", "schema": "public" },
+      "destination": { "type": "airtable", "table": "Orders" },
+      "fields": [
+        { "source": "order_id", "destination": "OrderID", "transform": "none" },
+        { "source": "customer_email", "destination": "Customer", "transform": "lowercase" },
+        { "source": "total_amount", "destination": "Total", "transform": "currency", "currency": "USD" },
+        { "source": "status", "destination": "Status", "transform": "capitalize" },
+        { "source": "created_at", "destination": "Date", "transform": "date_format", "format": "YYYY-MM-DD HH:mm" },
+        { "source": "items", "destination": "Items", "transform": "json_stringify" }
+      ],
+      "sync_direction": "source_to_destination",
+      "incremental": true,
+      "incremental_key": "updated_at"
+    },
+    {
+      "name": "inventory-sync",
+      "source": { "type": "google_sheets", "sheet": "Inventory", "range": "A:H" },
+      "destination": { "type": "postgres", "table": "inventory", "schema": "public" },
+      "fields": [
+        { "source": "SKU", "destination": "sku", "transform": "uppercase" },
+        { "source": "Product Name", "destination": "name", "transform": "none" },
+        { "source": "Quantity", "destination": "quantity", "transform": "integer" },
+        { "source": "Price", "destination": "unit_price", "transform": "decimal" },
+        { "source": "Warehouse", "destination": "warehouse_code", "transform": "none" },
+        { "source": "Last Updated", "destination": "updated_at", "transform": "timestamp" }
+      ],
+      "sync_direction": "source_to_destination",
+      "sync_key": "SKU",
+      "upsert": true
+    }
+  ],
+  "global_settings": {
+    "batch_size": 100,
+    "retry_attempts": 3,
+    "retry_delay_seconds": 5,
+    "log_level": "info",
+    "error_notification": { "type": "slack", "channel": "#data-sync-alerts" }
+  }
+}

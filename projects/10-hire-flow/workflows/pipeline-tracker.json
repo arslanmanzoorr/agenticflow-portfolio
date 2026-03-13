@@ -1,0 +1,201 @@
+{
+  "name": "Pipeline Tracker - HireFlow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "cron-monday",
+      "name": "Every Monday 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "application": "={{$env.AIRTABLE_BASE_ID}}",
+        "table": "={{$env.AIRTABLE_PIPELINE_TABLE}}",
+        "options": {
+          "fields": ["Candidate", "Job", "Stage", "InterviewDate", "UpdatedAt", "Rating"]
+        }
+      },
+      "id": "airtable-read-pipeline",
+      "name": "Read All Pipeline Records",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [470, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const records = $input.all();\nconst now = new Date();\nconst sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);\n\nconst stageCount = {};\nconst stageDays = {};\nconst staleRecords = [];\nlet totalCandidates = records.length;\n\nfor (const record of records) {\n  const stage = record.json.Stage || 'Unknown';\n  const updatedAt = record.json.UpdatedAt ? new Date(record.json.UpdatedAt) : null;\n  \n  stageCount[stage] = (stageCount[stage] || 0) + 1;\n  \n  if (updatedAt) {\n    const daysInStage = Math.floor((now - updatedAt) / (1000 * 60 * 60 * 24));\n    if (!stageDays[stage]) stageDays[stage] = [];\n    stageDays[stage].push(daysInStage);\n    \n    if (updatedAt < sevenDaysAgo && !['Closed', 'Offer'].includes(stage)) {\n      staleRecords.push({\n        id: record.json.id,\n        candidate: record.json.Candidate,\n        job: record.json.Job,\n        stage: stage,\n        days_stale: daysInStage,\n        last_updated: record.json.UpdatedAt\n      });\n    }\n  }\n}\n\nconst avgDays = {};\nfor (const [stage, days] of Object.entries(stageDays)) {\n  avgDays[stage] = Math.round(days.reduce((a, b) => a + b, 0) / days.length);\n}\n\nconst stageLines = Object.entries(stageCount)\n  .map(([stage, count]) => `  ${stage}: ${count} candidates (avg ${avgDays[stage] || 0} days)`)\n  .join('\\n');\n\nconst dashboardText = `:bar_chart: *Weekly Hiring Pipeline Dashboard*\\n\\n*Total Active Candidates:* ${totalCandidates}\\n\\n*Candidates by Stage:*\\n${stageLines}\\n\\n*Stale Candidates (>7 days):* ${staleRecords.length}`;\n\nreturn [{\n  json: {\n    dashboard_text: dashboardText,\n    stage_counts: stageCount,\n    avg_days_per_stage: avgDays,\n    stale_records: staleRecords,\n    has_stale: staleRecords.length > 0,\n    total_candidates: totalCandidates,\n    report_date: now.toISOString()\n  }\n}];"
+      },
+      "id": "aggregate-stats",
+      "name": "Aggregate Pipeline Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SLACK_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"Weekly Hiring Pipeline Dashboard\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"{{$json.dashboard_text}}\"\n      }\n    },\n    {\n      \"type\": \"divider\"\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"Report generated: {{$json.report_date}}\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "slack-dashboard",
+      "name": "Slack Weekly Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "stale-check",
+              "leftValue": "={{$json.has_stale}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-stale",
+      "name": "Any Stale Candidates?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst staleRecords = data.stale_records;\n\nreturn staleRecords.map(record => ({\n  json: record\n}));"
+      },
+      "id": "split-stale",
+      "name": "Split Stale Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 200]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "application": "={{$env.AIRTABLE_BASE_ID}}",
+        "table": "={{$env.AIRTABLE_CANDIDATES_TABLE}}",
+        "options": {
+          "filterByFormula": "=FIND(RECORD_ID(), '{{$json.candidate}}')",
+          "fields": ["Name", "Email", "Status"]
+        }
+      },
+      "id": "airtable-read-stale",
+      "name": "Read Stale Candidate Details",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1570, 200],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SMTP_USER}}",
+        "toEmail": "={{$env.SMTP_USER}}",
+        "subject": "=HireFlow: Follow-up Required - {{$json.Name}} stuck in {{$('Split Stale Candidates').first().json.stage}}",
+        "emailType": "html",
+        "html": "=<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n<h2 style=\"color: #DC2626;\">Follow-Up Required</h2>\n<p>The following candidate has been in the <strong>{{$('Split Stale Candidates').first().json.stage}}</strong> stage for <strong>{{$('Split Stale Candidates').first().json.days_stale}} days</strong>:</p>\n<table style=\"border-collapse: collapse; width: 100%;\">\n<tr><td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">Name</td><td style=\"padding: 8px; border: 1px solid #ddd;\">{{$json.Name}}</td></tr>\n<tr><td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">Email</td><td style=\"padding: 8px; border: 1px solid #ddd;\">{{$json.Email}}</td></tr>\n<tr><td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">Current Stage</td><td style=\"padding: 8px; border: 1px solid #ddd;\">{{$('Split Stale Candidates').first().json.stage}}</td></tr>\n<tr><td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">Days in Stage</td><td style=\"padding: 8px; border: 1px solid #ddd;\">{{$('Split Stale Candidates').first().json.days_stale}}</td></tr>\n<tr><td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">Last Updated</td><td style=\"padding: 8px; border: 1px solid #ddd;\">{{$('Split Stale Candidates').first().json.last_updated}}</td></tr>\n</table>\n<p>Please take action on this candidate to keep the pipeline moving.</p>\n</div>",
+        "options": {}
+      },
+      "id": "email-followup",
+      "name": "Send Follow-Up Reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1790, 200],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-cred-1",
+          "name": "SMTP Gmail"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every Monday 9am": {
+      "main": [
+        [{ "node": "Read All Pipeline Records", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read All Pipeline Records": {
+      "main": [
+        [{ "node": "Aggregate Pipeline Stats", "type": "main", "index": 0 }]
+      ]
+    },
+    "Aggregate Pipeline Stats": {
+      "main": [
+        [{ "node": "Slack Weekly Dashboard", "type": "main", "index": 0 }]
+      ]
+    },
+    "Slack Weekly Dashboard": {
+      "main": [
+        [{ "node": "Any Stale Candidates?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Any Stale Candidates?": {
+      "main": [
+        [{ "node": "Split Stale Candidates", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Split Stale Candidates": {
+      "main": [
+        [{ "node": "Read Stale Candidate Details", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Stale Candidate Details": {
+      "main": [
+        [{ "node": "Send Follow-Up Reminder", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "hireflow" },
+    { "name": "pipeline" },
+    { "name": "weekly" }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}

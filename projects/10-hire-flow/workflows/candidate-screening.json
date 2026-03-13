@@ -1,0 +1,291 @@
+{
+  "name": "Candidate Screening - HireFlow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "candidate-screening",
+        "options": {
+          "responseMode": "lastNode"
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "New Candidate Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "candidate-screening-hook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const candidate = $input.first().json;\n\nconst prompt = `You are a technical recruiter AI assistant. Evaluate this candidate for the given job opening.\n\nCandidate Profile:\n- Name: ${candidate.name}\n- Current Role: ${candidate.current_role}\n- Current Company: ${candidate.current_company}\n- Years of Experience: ${candidate.years_experience}\n- Skills: ${(candidate.skills || []).join(', ')}\n- Location: ${candidate.location}\n- Summary: ${candidate.summary}\n\nJob Requirements:\n- Title: ${candidate.job_title}\n- Required Skills: ${(candidate.required_skills || []).join(', ')}\n- Minimum Experience: ${candidate.min_experience} years\n- Job Description: ${candidate.job_description}\n\nProvide your evaluation in the following JSON format:\n{\n  \"score\": <number 1-10>,\n  \"assessment\": \"<2-3 sentence assessment of candidate fit>\",\n  \"strengths\": [\"<strength1>\", \"<strength2>\"],\n  \"gaps\": [\"<gap1>\", \"<gap2>\"],\n  \"recommendation\": \"<proceed|hold|reject>\"\n}`;\n\nreturn [{\n  json: {\n    candidate: candidate,\n    prompt: prompt\n  }\n}];"
+      },
+      "id": "prepare-prompt",
+      "name": "Prepare AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a technical recruitment evaluator. Always respond with valid JSON.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{$json.prompt}}\"\n    }\n  ],\n  \"temperature\": 0.3,\n  \"max_tokens\": 500\n}",
+        "options": {}
+      },
+      "id": "openai-evaluate",
+      "name": "OpenAI Evaluate Candidate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [690, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-cred-1",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst candidate = $('Prepare AI Prompt').first().json.candidate;\nlet evaluation;\n\ntry {\n  const content = response.choices[0].message.content;\n  evaluation = JSON.parse(content);\n} catch (e) {\n  evaluation = {\n    score: 5,\n    assessment: 'Unable to parse AI response. Manual review required.',\n    strengths: [],\n    gaps: [],\n    recommendation: 'hold'\n  };\n}\n\nreturn [{\n  json: {\n    candidate_id: candidate.airtable_record_id,\n    candidate_name: candidate.name,\n    candidate_email: candidate.email,\n    job_title: candidate.job_title,\n    ai_score: evaluation.score,\n    ai_assessment: evaluation.assessment,\n    strengths: evaluation.strengths,\n    gaps: evaluation.gaps,\n    recommendation: evaluation.recommendation\n  }\n}];"
+      },
+      "id": "parse-evaluation",
+      "name": "Parse AI Evaluation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "application": "={{$env.AIRTABLE_BASE_ID}}",
+        "table": "={{$env.AIRTABLE_CANDIDATES_TABLE}}",
+        "id": "={{$json.candidate_id}}",
+        "fields": {
+          "values": [
+            { "fieldName": "AIScore", "fieldValue": "={{$json.ai_score}}" },
+            { "fieldName": "AIAssessment", "fieldValue": "={{$json.ai_assessment}}" },
+            { "fieldName": "Status", "fieldValue": "Screened" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "airtable-update-score",
+      "name": "Update Candidate Score",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1130, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "score-check",
+              "leftValue": "={{$json.ai_score}}",
+              "rightValue": 7,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-qualified",
+      "name": "Score >= 7?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.calendly.com/scheduling_links",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"max_event_count\": 1,\n  \"owner\": \"{{$env.CALENDLY_EVENT_TYPE}}\",\n  \"owner_type\": \"EventType\"\n}",
+        "options": {}
+      },
+      "id": "calendly-link",
+      "name": "Generate Calendly Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1570, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "calendly-cred-1",
+          "name": "Calendly API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "application": "={{$env.AIRTABLE_BASE_ID}}",
+        "table": "={{$env.AIRTABLE_PIPELINE_TABLE}}",
+        "id": "={{$json.candidate_id}}",
+        "fields": {
+          "values": [
+            { "fieldName": "CalendlyLink", "fieldValue": "={{$json.resource.booking_url}}" },
+            { "fieldName": "Stage", "fieldValue": "Phone Screen" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "airtable-update-calendly",
+      "name": "Update Pipeline with Calendly",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1790, 200],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "airtable-cred-1",
+          "name": "Airtable API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SMTP_USER}}",
+        "toEmail": "={{$('Parse AI Evaluation').first().json.candidate_email}}",
+        "subject": "=Exciting Opportunity: {{$('Parse AI Evaluation').first().json.job_title}}",
+        "emailType": "html",
+        "html": "=<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n<h2>Hi {{$('Parse AI Evaluation').first().json.candidate_name}},</h2>\n<p>We came across your profile and were impressed by your background. We have an exciting opportunity for a <strong>{{$('Parse AI Evaluation').first().json.job_title}}</strong> role that aligns well with your experience.</p>\n<p>We'd love to learn more about you and discuss this opportunity. Please feel free to book a time that works for you:</p>\n<p style=\"text-align: center; margin: 30px 0;\">\n<a href=\"{{$json.resource.booking_url}}\" style=\"background-color: #4F46E5; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;\">Schedule a Call</a>\n</p>\n<p>Looking forward to connecting!</p>\n<p>Best regards,<br>The Hiring Team</p>\n</div>",
+        "options": {}
+      },
+      "id": "send-outreach-email",
+      "name": "Send Outreach Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2010, 200],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-cred-1",
+          "name": "SMTP Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SLACK_WEBHOOK_URL}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=:star: *New Qualified Candidate*\n\n*Name:* {{$('Parse AI Evaluation').first().json.candidate_name}}\n*Role:* {{$('Parse AI Evaluation').first().json.job_title}}\n*AI Score:* {{$('Parse AI Evaluation').first().json.ai_score}}/10\n*Assessment:* {{$('Parse AI Evaluation').first().json.ai_assessment}}\n*Strengths:* {{$('Parse AI Evaluation').first().json.strengths.join(', ')}}\n\nOutreach email sent with Calendly link."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "slack-qualified",
+      "name": "Slack - Qualified Candidate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2230, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SLACK_WEBHOOK_URL}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=:clipboard: *Candidate Screened - Below Threshold*\n\n*Name:* {{$json.candidate_name}}\n*Role:* {{$json.job_title}}\n*AI Score:* {{$json.ai_score}}/10\n*Assessment:* {{$json.ai_assessment}}\n\nCandidate did not meet the minimum score threshold. Record updated in Airtable."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "slack-below-threshold",
+      "name": "Slack - Below Threshold",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1570, 450]
+    }
+  ],
+  "connections": {
+    "New Candidate Webhook": {
+      "main": [
+        [{ "node": "Prepare AI Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare AI Prompt": {
+      "main": [
+        [{ "node": "OpenAI Evaluate Candidate", "type": "main", "index": 0 }]
+      ]
+    },
+    "OpenAI Evaluate Candidate": {
+      "main": [
+        [{ "node": "Parse AI Evaluation", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse AI Evaluation": {
+      "main": [
+        [{ "node": "Update Candidate Score", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Candidate Score": {
+      "main": [
+        [{ "node": "Score >= 7?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Score >= 7?": {
+      "main": [
+        [{ "node": "Generate Calendly Link", "type": "main", "index": 0 }],
+        [{ "node": "Slack - Below Threshold", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Calendly Link": {
+      "main": [
+        [{ "node": "Update Pipeline with Calendly", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Pipeline with Calendly": {
+      "main": [
+        [{ "node": "Send Outreach Email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Outreach Email": {
+      "main": [
+        [{ "node": "Slack - Qualified Candidate", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "hireflow" },
+    { "name": "screening" }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}

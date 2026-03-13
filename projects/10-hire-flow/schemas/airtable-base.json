@@ -1,0 +1,54 @@
+{
+  "name": "HireFlow Recruitment Pipeline",
+  "tables": [
+    {
+      "name": "Candidates",
+      "fields": [
+        { "name": "Name", "type": "singleLineText" },
+        { "name": "Email", "type": "email" },
+        { "name": "LinkedIn", "type": "url" },
+        { "name": "CurrentRole", "type": "singleLineText" },
+        { "name": "CurrentCompany", "type": "singleLineText" },
+        { "name": "Location", "type": "singleLineText" },
+        { "name": "Skills", "type": "multipleSelects" },
+        { "name": "YearsExperience", "type": "number" },
+        { "name": "Summary", "type": "multilineText" },
+        { "name": "AIScore", "type": "number" },
+        { "name": "AIAssessment", "type": "multilineText" },
+        { "name": "Source", "type": "singleSelect", "options": ["LinkedIn", "Indeed", "Referral", "Direct"] },
+        { "name": "Status", "type": "singleSelect", "options": ["New", "Screened", "Contacted", "Interview Scheduled", "Interviewed", "Offer", "Hired", "Rejected"] },
+        { "name": "Pipeline", "type": "multipleRecordLinks", "linkedTable": "Pipeline" },
+        { "name": "ScrapedAt", "type": "dateTime" },
+        { "name": "Notes", "type": "multilineText" }
+      ]
+    },
+    {
+      "name": "JobOpenings",
+      "fields": [
+        { "name": "Title", "type": "singleLineText" },
+        { "name": "Department", "type": "singleSelect" },
+        { "name": "Location", "type": "singleLineText" },
+        { "name": "Type", "type": "singleSelect", "options": ["Full-time", "Part-time", "Contract", "Remote"] },
+        { "name": "RequiredSkills", "type": "multipleSelects" },
+        { "name": "MinExperience", "type": "number" },
+        { "name": "Description", "type": "multilineText" },
+        { "name": "Status", "type": "singleSelect", "options": ["Open", "On Hold", "Filled", "Closed"] },
+        { "name": "Candidates", "type": "multipleRecordLinks", "linkedTable": "Pipeline" },
+        { "name": "CreatedAt", "type": "dateTime" }
+      ]
+    },
+    {
+      "name": "Pipeline",
+      "fields": [
+        { "name": "Candidate", "type": "multipleRecordLinks", "linkedTable": "Candidates" },
+        { "name": "Job", "type": "multipleRecordLinks", "linkedTable": "JobOpenings" },
+        { "name": "Stage", "type": "singleSelect", "options": ["Applied", "Phone Screen", "Technical", "Final", "Offer", "Closed"] },
+        { "name": "CalendlyLink", "type": "url" },
+        { "name": "InterviewDate", "type": "dateTime" },
+        { "name": "Feedback", "type": "multilineText" },
+        { "name": "Rating", "type": "rating" },
+        { "name": "UpdatedAt", "type": "dateTime" }
+      ]
+    }
+  ]
+}
