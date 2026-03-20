@@ -30,7 +30,7 @@ function buildPortfolioContext(): string {
   ctx += `\n`;
 
   ctx += `## Technical Skills\n`;
-  const allTools = [...new Set(projects.flatMap((p) => p.tools))];
+  const allTools = Array.from(new Set(projects.flatMap((p) => p.tools)));
   ctx += `- Tools & Platforms: ${allTools.join(", ")}\n`;
   ctx += `- Core: n8n, Python, FastAPI, OpenAI, Apify, Airtable, HubSpot, Shopify\n`;
   ctx += `- AI/ML: GPT-4, Claude, LangChain, autonomous agents\n`;
