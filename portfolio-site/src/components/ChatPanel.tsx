@@ -27,7 +27,7 @@ function renderMarkdown(text: string): string {
   html = html.replace(/^### (.+)$/gm, '<h4 class="font-semibold text-sm mt-3 mb-1">$1</h4>');
   html = html.replace(/^## (.+)$/gm, '<h3 class="font-semibold text-sm mt-3 mb-1">$1</h3>');
   html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
-  html = html.replace(/(<li>.*<\/li>\n?)+/gs, '<ul class="list-disc pl-4 space-y-0.5">$&</ul>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>\n?)+/g, '<ul class="list-disc pl-4 space-y-0.5">$&</ul>');
   html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
   html = html.replace(/\n\n/g, "</p><p>");
   html = html.replace(/\n/g, "<br>");
