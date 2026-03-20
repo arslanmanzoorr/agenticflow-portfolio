@@ -441,4 +441,43 @@ export const projects: Project[] = [
       "Daily client health summary sent to dashboard",
     ],
   },
+  {
+    id: 14,
+    slug: "agentic-kpi-dashboard",
+    title: "Agentic KPI Dashboard",
+    tagline:
+      "Real-time KPI monitoring dashboard with Airtable sync, n8n webhook ingestion, AI-powered chatbot insights, and live WebSocket updates.",
+    description:
+      "Agentic KPI Dashboard is a full-stack analytics command center built on Node.js and Express. It syncs KPI data from Airtable on a cron schedule, accepts live updates via n8n webhooks, and renders 20+ metrics with sparkline trends, progress bars, and health scoring. An embedded AI chatbot (powered by OpenRouter) analyzes all KPI data in real time and provides actionable insights, risk alerts, and performance recommendations directly from the dashboard.",
+    problem:
+      "Teams track KPIs across scattered spreadsheets and BI tools with no real-time visibility, no automated alerting, and no way to quickly ask questions about their data without digging through charts.",
+    solution:
+      "A self-hosted Node.js dashboard that pulls KPI data from Airtable, accepts n8n webhook updates for real-time sync, displays metrics with interactive charts and health scoring, and includes an AI chatbot that can analyze all data and surface insights on demand.",
+    tools: ["Node.js", "Express", "Airtable", "n8n", "WebSocket", "OpenRouter", "Chart.js", "SQLite"],
+    category: "Data",
+    type: "hybrid",
+    featured: true,
+    features: [
+      "Real-time KPI cards with sparkline trends and progress bars",
+      "Airtable bidirectional sync on configurable cron schedule",
+      "n8n webhook endpoints for live data ingestion",
+      "AI chatbot with full KPI context for instant insights",
+      "WebSocket live updates — no page refresh needed",
+      "Health scoring engine with category breakdowns",
+      "Interactive Chart.js visualizations (bar, doughnut, trend)",
+      "Dark and light theme with responsive design",
+      "Filterable data table with sort and search",
+      "Bulk update and snapshot webhook APIs",
+    ],
+    architecture: [
+      "Express server initializes SQLite database with seed data",
+      "Cron job syncs KPI records from Airtable API",
+      "n8n sends webhook POSTs to /api/webhook/kpi for live updates",
+      "KPI engine enriches data with trend, progress, and health scores",
+      "WebSocket server broadcasts changes to all connected clients",
+      "Chart.js renders category distribution, status, and trend charts",
+      "AI chatbot loads all KPI context and streams responses via OpenRouter",
+      "Frontend auto-refreshes cards, charts, and table on WebSocket events",
+    ],
+  },
 ];

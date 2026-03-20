@@ -59,3 +59,34 @@
     text-wrap: balance;
   }
 }
+
+/* Chat Panel Styles */
+.chat-bubble-ai {
+  @apply max-w-[85%] px-3.5 py-2.5 rounded-xl text-[13px] leading-relaxed text-[#e2e8f0];
+  background: #1a1a2e;
+  border: 1px solid #2a2a3e;
+}
+.chat-bubble-ai p { margin: 0 0 6px; }
+.chat-bubble-ai p:last-child { margin-bottom: 0; }
+.chat-bubble-ai ul { margin: 4px 0; }
+.chat-bubble-ai li { margin: 1px 0; }
+.chat-bubble-ai strong { color: #f8fafc; font-weight: 600; }
+.chat-inline-code {
+  @apply px-1 py-0.5 rounded text-[12px];
+  background: rgba(6, 182, 212, 0.1);
+  color: #22d3ee;
+}
+
+.chat-bubble-user {
+  @apply max-w-[85%] px-3.5 py-2.5 rounded-xl text-[13px] leading-relaxed text-white;
+  background: linear-gradient(135deg, #06b6d4, #3b82f6);
+}
+
+@media (max-width: 500px) {
+  .fixed.bottom-24.right-6.w-\[400px\] {
+    width: calc(100vw - 32px) !important;
+    right: 16px !important;
+    bottom: 80px !important;
+    max-height: 70vh !important;
+  }
+}
