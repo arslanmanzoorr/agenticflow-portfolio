@@ -26,17 +26,59 @@ const iconMap: Record<string, LucideIcon> = {
   Lobster: Shell,
 };
 
-const cardVariants = {
-  hidden: { opacity: 0, y: 30 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      delay: i * 0.08,
-      duration: 0.5,
-      ease: [0.21, 0.47, 0.32, 0.98],
-    },
-  }),
+// Grid placement for each service card on desktop (lg)
+const gridPlacements: Record<
+  number,
+  { colSpan: string; rowSpan: string; lgColSpan: string; lgRowSpan: string }
+> = {
+  0: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-2",
+    lgRowSpan: "lg:row-span-2",
+  },
+  1: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-1",
+    lgRowSpan: "",
+  },
+  2: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-1",
+    lgRowSpan: "",
+  },
+  3: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-1",
+    lgRowSpan: "",
+  },
+  4: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-1",
+    lgRowSpan: "",
+  },
+  5: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-1",
+    lgRowSpan: "",
+  },
+  6: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-1",
+    lgRowSpan: "",
+  },
+  7: {
+    colSpan: "md:col-span-1",
+    rowSpan: "",
+    lgColSpan: "lg:col-span-2",
+    lgRowSpan: "",
+  },
 };
 
 export default function ServicesGrid() {
@@ -51,8 +93,8 @@ export default function ServicesGrid() {
         >
           <SectionHeading
             badge="Services"
-            title="What I Do"
-            subtitle="From OpenClaw agent deployments to fully automated pipelines — I build AI systems that think, act, and scale while you sleep."
+            title="What I Build"
+            subtitle="Intelligent automation systems that think, act, and scale."
           />
         </motion.div>
 
@@ -60,64 +102,70 @@ export default function ServicesGrid() {
           {services.map((service, i) => {
             const Icon = iconMap[service.icon] || Bot;
             const isOpenClaw = service.icon === "Lobster";
+            const placement = gridPlacements[i];
 
             return (
               <motion.div
                 key={service.title}
-                custom={i}
-                variants={cardVariants}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true, margin: "-50px" }}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{
+                  delay: i * 0.06,
+                  duration: 0.5,
+                  ease: [0.21, 0.47, 0.32, 0.98],
+                }}
+                className={`${placement.colSpan} ${placement.rowSpan} ${placement.lgColSpan} ${placement.lgRowSpan}`}
               >
                 <div
-                  className={`relative h-full group cursor-pointer overflow-hidden rounded-xl border transition-all duration-500 ${
+                  className={`relative h-full group cursor-pointer overflow-hidden rounded-2xl border transition-all duration-500 bg-[#0a0a14]/80 backdrop-blur-sm ${
                     isOpenClaw
-                      ? "border-orange-500/20 hover:border-orange-400/40 hover:shadow-[0_0_30px_-8px_rgba(249,115,22,0.15)]"
-                      : "border-[#1a1a2e] hover:border-cyan-500/30 hover:shadow-[0_0_30px_-8px_rgba(6,182,212,0.1)]"
-                  }`}
+                      ? "border-[#1a1a2e] hover:border-orange-500/30 hover:shadow-[0_0_40px_-12px_rgba(249,115,22,0.2)]"
+                      : "border-[#1a1a2e] hover:border-cyan-500/20 hover:shadow-[0_0_40px_-12px_rgba(6,182,212,0.15)]"
+                  } ${isOpenClaw ? "p-8" : "p-6"}`}
                 >
-                  {/* Gradient hover background */}
-                  <div
-                    className={`absolute inset-0 transition-all duration-700 pointer-events-none ${
-                      isOpenClaw
-                        ? "bg-gradient-to-b from-orange-500/0 to-orange-500/0 group-hover:from-orange-500/5 group-hover:to-transparent"
-                        : "bg-gradient-to-b from-cyan-500/0 to-cyan-500/0 group-hover:from-cyan-500/5 group-hover:to-transparent"
-                    }`}
-                  />
-                  <div className="absolute inset-[1px] bg-[#0a0a12]/95 rounded-xl" />
-
-                  {/* Hot badge */}
+                  {/* HOT badge for OpenClaw */}
                   {isOpenClaw && (
-                    <div className="absolute top-0 right-0 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-bl-xl z-10">
-                      Hot
-                    </div>
+                    <span className="absolute top-3 right-3 px-2.5 py-0.5 text-[10px] font-bold uppercase bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-full">
+                      HOT
+                    </span>
                   )}
 
-                  {/* Content */}
-                  <div className="relative p-6">
-                    <div
-                      className={`mb-4 inline-flex items-center justify-center w-11 h-11 rounded-lg border transition-all duration-300 ${
-                        isOpenClaw
-                          ? "bg-orange-500/10 border-orange-500/20 group-hover:bg-orange-500/20 group-hover:scale-110"
-                          : "bg-cyan-500/10 border-cyan-500/20 group-hover:bg-cyan-500/20 group-hover:scale-110"
-                      }`}
-                    >
-                      <Icon
-                        className={`w-5 h-5 ${
-                          isOpenClaw ? "text-orange-400" : "text-cyan-400"
-                        }`}
-                      />
-                    </div>
-
-                    <h3 className="text-base font-semibold text-[#f8fafc] mb-2">
-                      {service.title}
-                    </h3>
-
-                    <p className="text-sm text-[#64748b] leading-relaxed">
-                      {service.description}
-                    </p>
+                  {/* Icon */}
+                  <div
+                    className={`inline-flex items-center justify-center rounded-xl border transition-transform duration-300 group-hover:scale-110 ${
+                      isOpenClaw
+                        ? "w-12 h-12 bg-orange-500/10 border-orange-500/20"
+                        : "w-11 h-11 bg-cyan-500/10 border-cyan-500/20"
+                    }`}
+                  >
+                    <Icon
+                      className={`${isOpenClaw ? "w-6 h-6 text-orange-400" : "w-5 h-5 text-cyan-400"}`}
+                    />
                   </div>
+
+                  {/* Title */}
+                  <h3
+                    className={`font-semibold text-[#f8fafc] mt-4 mb-2 ${
+                      isOpenClaw ? "text-xl" : "text-lg"
+                    }`}
+                  >
+                    {service.title}
+                  </h3>
+
+                  {/* Description */}
+                  <p
+                    className={`text-[#64748b] leading-relaxed ${
+                      isOpenClaw ? "text-base" : "text-sm"
+                    }`}
+                  >
+                    {service.description}
+                  </p>
+
+                  {/* Decorative gradient line for OpenClaw featured card */}
+                  {isOpenClaw && (
+                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-orange-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  )}
                 </div>
               </motion.div>
             );
