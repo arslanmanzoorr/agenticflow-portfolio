@@ -43,11 +43,4 @@ export const experience: Experience[] = [
     description:
       "Designed and deployed AI automation workflows using n8n, generative AI, and intelligent pipeline architectures. Built end-to-end automation solutions integrating artificial intelligence with business processes at scale.",
   },
-  {
-    title: "AI Automation Specialist",
-    company: "NDT LEGACY GROUP",
-    period: "Aug 2025 - Present",
-    description:
-      "Spearheading AI automation initiatives including intelligent workflow design, prompt engineering, and automation strategy. Building scalable automation systems that integrate AI capabilities into core business operations remotely.",
-  },
 ];
